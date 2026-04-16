@@ -1,0 +1,417 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Переменные темы */
+:root {
+  --background-color: #1f252e;
+  --text-color: #e3e8ef;
+  --accent-color: #a3d5ff;
+  --secondary-color: #f3b6d0;
+  --button-bg: #2c3440;
+  --button-hover: #3a4452;
+  --modal-bg: #fff;
+  --modal-text: hsl(0, 0%, 0%);
+}
+
+:root[data-theme="dark"] {
+  --background-color: #1f252e;
+  --text-color: #e3e8ef;
+  --accent-color: #a3d5ff;
+  --secondary-color: #f3b6d0;
+  --button-bg: #2c3440;
+  --button-hover: #3a4452;
+  --modal-bg: #1f252e;
+  --modal-text: #e3e8ef;
+}
+
+/* Базовые стили для body */
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  transition:
+    background-color 0.3s,
+    color 0.3s;
+}
+
+/* Кнопки */
+.button,
+button {
+  position: relative;
+  padding: 10px 20px;
+  font-size: 16px;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  background-color: var(--button-bg);
+  color: var(--text-color);
+  /*transition: background-color 0.3s, transform 0.2s;*/
+  transition: background-color 0.3s;
+}
+
+.button:hover,
+button:hover {
+  background-color: var(--button-hover);
+  /*transform: scale(1.05);*/
+}
+
+.button.active,
+button:active {
+  background-color: var(--accent-color);
+  color: white;
+  /*transform: scale(1);*/
+}
+
+/* Кастомная кнопка загрузки файла */
+.custom-file-upload {
+  position: relative;
+  display: inline-block;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  background-color: var(--secondary-color);
+  color: white;
+  border-radius: 3px;
+  text-align: center;
+  /*transition: background-color 0.3s, transform 0.2s;*/
+  transition: background-color 0.3s;
+}
+
+.custom-file-upload:hover {
+  background-color: var(--accent-color);
+  /*transform: scale(1.05);*/
+}
+
+.custom-file-upload input[type="file"] {
+  display: none;
+}
+
+/* Переключатель темы */
+.theme-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+
+.theme-checkbox {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: 0.4s;
+}
+
+.theme-checkbox:checked + .slider {
+  background-color: var(--accent-color);
+}
+
+.theme-checkbox:checked + .slider:before {
+  transform: translateX(26px);
+}
+
+/* Стили для формы авторизации */
+.auth-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-container p {
+  text-align: left;
+  align-self: flex-start;
+  font-size: 0.85em;
+  margin-top: 10px;
+}
+
+.auth-form {
+  padding: 20px;
+}
+
+/* Инпуты */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+textarea {
+  padding: 8px 12px;
+  width: 100%;
+  max-width: 300px;
+  box-sizing: border-box;
+  border: 1px solid var(--secondary-color);
+  border-radius: 10px;
+  background-color: #2b2f36;
+  color: var(--text-color);
+  transition:
+    background-color 0.3s,
+    color 0.3s,
+    border-color 0.3s,
+    box-shadow 0.2s;
+}
+
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="tel"],
+  textarea {
+    max-width: 100%;
+  }
+}
+
+.auth-input {
+  padding: 8px 12px;
+  border: 1px solid var(--secondary-color);
+  border-radius: 10px;
+  background-color: #2b2f36;
+  color: var(--text-color);
+  box-sizing: border-box;
+}
+
+input[type="text"]:hover,
+input[type="password"]:hover,
+input[type="email"]:hover,
+input[type="tel"]:hover,
+textarea:hover {
+  /*transform: translateY(-2px) scale(1.02);*/
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+input[type="text"]::placeholder,
+input[type="password"]::placeholder,
+input[type="email"]::placeholder,
+input[type="tel"]::placeholder,
+textarea::placeholder {
+  color: #888;
+  font-style: italic;
+}
+
+/* Инпуты в тёмной теме */
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] input[type="email"],
+:root[data-theme="dark"] textarea {
+  background-color: #1f232a;
+  color: #ffffff;
+  border: 1px solid #555555;
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: #cccccc;
+}
+
+/* Хедеры и панели */
+.header-container,
+.top-panel {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.header-container {
+  justify-content: flex-start;
+}
+
+.top-panel {
+  justify-content: flex-end;
+}
+
+.header-button {
+  padding: 8px 16px;
+  margin: 2px;
+}
+
+/* Контейнер вьюера */
+.viewer-container {
+  position: absolute;
+  /*right: 12px;*/
+  /*width: calc(100% - 24px);*/
+  width: 100%;
+  height: 100%;
+  border: 1px solid #ccc;
+}
+
+/* Модальные окна */
+.modal-container,
+.comment-modal {
+  position: absolute;
+  background-color: var(--modal-bg);
+  color: var(--modal-text);
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 9999;
+}
+
+.modal-container {
+  width: 300px;
+}
+
+.comment-modal {
+  top: 50px;
+  right: 20px;
+  max-width: 300px;
+  min-width: 200px;
+  background-color: var(--background-color);
+  border: 1px solid var(--accent-color);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
+
+/* Модальное содержимое */
+.modal-header {
+  cursor: move;
+  padding: 5px;
+  border-bottom: 1px solid #ccc;
+  margin-bottom: 5px;
+}
+
+.modal-title {
+  display: flex;
+  margin: 10px;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.modal-close {
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 1.25em;
+  margin: 0 10px 0 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  background-color: rgb(227, 79, 79);
+}
+
+.modal-textarea {
+  width: 100%;
+  min-height: 50px;
+  margin-bottom: 5px;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 1px;
+}
+
+.modal-json-button {
+  margin-left: 9px;
+  position: relative;
+}
+
+.modal-comments {
+  margin-top: 10px;
+}
+
+.modal-comments ul li {
+  margin-bottom: 10px;
+}
+
+/* Переключатель темы текст */
+.theme-toggler-container {
+  display: flex;
+  align-items: center;
+}
+
+.theme-text {
+  margin-left: 8px;
+}
+
+.model-tree-container {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 10;
+  background-color: #1f252e;
+  padding: 10px;
+  max-height: 90vh;
+  overflow: auto;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+}
+
+.model-tree {
+  padding-left: 0;
+  margin-top: 0;
+}
+
+.model-tree li {
+  list-style: none;
+  margin-left: 16px;
+}
+
+.model-tree-row {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  padding: 2px 4px;
+  transition: background 0.15s;
+}
+
+.model-tree-row:hover .model-tree-name {
+  background: #3a4452;
+}
+
+.model-tree-arrow {
+  user-select: none;
+  width: 16px;
+  margin-right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.model-tree-name {
+  flex: 1;
+  border-radius: 4px;
+  padding: 2px 4px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.model-tree-name.selected {
+  font-weight: bold;
+  color: #1976d2;
+}
+
+.model-tree-children {
+  padding-left: 12px;
+  border-left: 1px solid #ccc;
+  margin-top: 4px;
+}

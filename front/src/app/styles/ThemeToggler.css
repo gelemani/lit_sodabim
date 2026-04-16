@@ -1,0 +1,254 @@
+/*:root {*/
+/*    --modal-bg: #fff;*/
+/*    --modal-text: hsl(0, 0%, 0%);*/
+/*}*/
+
+/*[data-theme="dark"] {*/
+/*    --modal-bg: #444;*/
+/*    --modal-text: #fff;*/
+/*}*/
+
+/*.theme-toggler-container {*/
+/*    display: flex;*/
+/*    align-items: center;*/
+/*}*/
+
+/*.theme-text {:root {*/
+/*    --modal-bg: #fff;*/
+/*    --modal-text: hsl(0, 0%, 0%);*/
+/*}*/
+
+/*    [data-theme="dark"] {*/
+/*        --modal-bg: #444;*/
+/*        --modal-text: #fff;*/
+/*    }*/
+
+/*    .theme-toggler-container {*/
+/*        display: flex;*/
+/*        align-items: center;*/
+/*    }*/
+
+/*    .theme-text {*/
+/*        margin-left: 8px;*/
+/*    }*/
+
+
+/*    .auth-form {*/
+/*        padding: 20px;*/
+/*    }*/
+
+/*    .form-input {*/
+/*        padding: 8px;*/
+/*        width: 200px;*/
+/*        margin-bottom: 10px;*/
+/*    }*/
+
+/*    .form-button {*/
+/*        padding: 8px 16px;*/
+/*        color: #fff;*/
+/*    }*/
+
+/*    .header-container {*/
+/*        display: flex;*/
+/*        justify-content: flex-start; !* Align items to the left *!*/
+/*        gap: 10px;*/
+/*        align-items: center;*/
+/*        margin-bottom: 10px;*/
+/*    }*/
+
+/*    .top-panel {*/
+/*        display: flex;*/
+/*        justify-content: flex-end; !* Align items to the right *!*/
+/*        gap: 10px;*/
+/*        align-items: center;*/
+/*        margin-bottom: 10px;*/
+/*    }*/
+
+/*    .header-button {*/
+/*        padding: 8px 16px;*/
+/*        margin: 2px;*/
+/*    }*/
+
+/*    .viewer-container {*/
+/*        position: absolute;*/
+/*        right: 12px;*/
+/*        width: calc(100% - 24px);*/
+/*        height: 80vh;*/
+/*        border: 1px solid #ccc;*/
+/*    }*/
+
+/*    .modal-container {*/
+/*        position: absolute;*/
+/*        width: 300px;*/
+/*        background-color: var(--modal-bg);*/
+/*        color: var(--modal-text);*/
+/*        border: 1px solid #ccc;*/
+/*        border-radius: 8px;*/
+/*        padding: 10px;*/
+/*        z-index: 9999;*/
+/*    }*/
+
+/*    .modal-header {*/
+/*        cursor: move;*/
+/*        padding: 5px;*/
+/*        border-bottom: 1px solid #ccc;*/
+/*        margin-bottom: 5px;*/
+/*    }*/
+
+/*    .modal-title {*/
+/*        display: flex;*/
+/*        margin: 10px;*/
+/*        justify-content: space-between;*/
+/*        align-items: center;*/
+/*        width: 100%;*/
+/*    }*/
+
+/*    .modal-close {*/
+/*        border: none;*/
+/*        font-size: 16px;*/
+/*        cursor: pointer;*/
+/*        padding: 1.25em;*/
+/*        margin: 0 10px 0 0;*/
+/*        width: 20px;*/
+/*        height: 20px;*/
+/*        display: flex;*/
+/*        align-items: center;*/
+/*        justify-content: center;*/
+/*        color: white;*/
+/*        background-color: rgb(227,79,79);*/
+/*    }*/
+
+/*    .modal-textarea {*/
+/*        width: 100%;*/
+/*        min-height: 50px;*/
+/*        margin-bottom: 5px;*/
+/*    }*/
+
+/*    .modal-buttons {*/
+/*        display: flex;*/
+/*        gap: 1px;*/
+/*    }*/
+
+/*    .modal-json-button {        margin-left: 9px;*/
+/*        position: relative;*/
+/*    }*/
+
+/*    .modal-comments {*/
+/*        margin-top: 10px;*/
+/*    }*/
+
+/*    .modal-comments ul li {*/
+/*        margin-bottom: 10px; !* Adjust the value as needed *!*/
+/*    }*/
+/*    margin-left: 8px;*/
+/*}*/
+
+
+/*.auth-form {*/
+/*    padding: 20px;*/
+/*}*/
+
+/*.form-input {*/
+/*    padding: 8px;*/
+/*    width: 200px;*/
+/*    margin-bottom: 10px;*/
+/*}*/
+
+/*.form-button {*/
+/*    padding: 8px 16px;*/
+/*    color: #fff;*/
+/*}*/
+
+/*.header-container {*/
+/*    display: flex;*/
+/*    justify-content: flex-start; !* Align items to the left *!*/
+/*    gap: 10px;*/
+/*    align-items: center;*/
+/*    margin-bottom: 10px;*/
+/*}*/
+
+/*.top-panel {*/
+/*    display: flex;*/
+/*    justify-content: flex-end; !* Align items to the right *!*/
+/*    gap: 10px;*/
+/*    align-items: center;*/
+/*    margin-bottom: 10px;*/
+/*}*/
+
+/*.header-button {*/
+/*    padding: 8px 16px;*/
+/*    margin: 2px;*/
+/*}*/
+
+/*.viewer-container {*/
+/*    position: absolute;*/
+/*    right: 12px;*/
+/*    width: calc(100% - 24px);*/
+/*    height: 80vh;*/
+/*    border: 1px solid #ccc;*/
+/*}*/
+
+/*.modal-container {*/
+/*    position: absolute;*/
+/*    width: 300px;*/
+/*    background-color: var(--modal-bg);*/
+/*    color: var(--modal-text);*/
+/*    border: 1px solid #ccc;*/
+/*    border-radius: 8px;*/
+/*    padding: 10px;*/
+/*    z-index: 9999;*/
+/*}*/
+
+/*.modal-header {*/
+/*    cursor: move;*/
+/*    padding: 5px;*/
+/*    border-bottom: 1px solid #ccc;*/
+/*    margin-bottom: 5px;*/
+/*}*/
+
+/*.modal-title {*/
+/*        display: flex;*/
+/*        margin: 10px;*/
+/*        justify-content: space-between;*/
+/*        align-items: center;*/
+/*        width: 100%;*/
+/*}*/
+
+/*.modal-close {*/
+/*    border: none;*/
+/*    font-size: 16px;*/
+/*    cursor: pointer;*/
+/*    padding: 1.25em;*/
+/*    margin: 0 10px 0 0;*/
+/*    width: 20px;*/
+/*    height: 20px;*/
+/*    display: flex;*/
+/*    align-items: center;*/
+/*    justify-content: center;*/
+/*    color: white;*/
+/*    background-color: rgb(227,79,79);*/
+/*}*/
+
+/*.modal-textarea {*/
+/*    width: 100%;*/
+/*    min-height: 50px;*/
+/*    margin-bottom: 5px;*/
+/*}*/
+
+/*.modal-buttons {*/
+/*    display: flex;*/
+/*    gap: 1px;*/
+/*}*/
+
+/*.modal-json-button {*/
+/*    margin-left: 9px;*/
+/*    position: relative;*/
+/*}*/
+
+/*.modal-comments {*/
+/*    margin-top: 10px;*/
+/*}*/
+
+/*.modal-comments ul li {*/
+/*    margin-bottom: 10px; !* Adjust the value as needed *!*/
+/*}*/

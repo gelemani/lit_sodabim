@@ -1,0 +1,18 @@
+---
+description: Запускать бэкенд BIMBack после правок в проекте
+alwaysApply: true
+---
+
+# Запуск бэкенда после правок
+
+После каждой правки в коде запускай бэкенд API (BIMBack), чтобы приложение работало корректно.
+
+Команда для запуска:
+
+```bash
+cd /Users/fedor/coding/BIMBack && dotnet run --urls "http://localhost:5080"
+```
+
+Бэкенд — .NET проект в `/Users/fedor/coding/BIMBack`, ожидается на порту 5080 (API_URL в `src/app/config/api.ts`).
+
+Если при автоматическом запуске возникает «Access denied» к B.dll — скорее всего файл заблокирован (IDE, индексация). Запусти бэкенд вручную в обычном терминале.
