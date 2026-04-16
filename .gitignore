@@ -1,3 +1,6 @@
 node_modules/
 back/obj/
 back/bin/
+back/bimback.db
+back/bimback.db-shm
+back/bimback.db-wal
