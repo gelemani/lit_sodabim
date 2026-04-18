@@ -1009,6 +1009,12 @@ class ApiService {
   }
 }
 
+  async aiChat(message: string, elementProperties?: string): Promise<{ reply: string }> {
+    const resp = await this.axiosInstance.post(`${API_PREFIX}/ai/chat`, { message, elementProperties });
+    return resp.data as { reply: string };
+  }
+}
+
 export const apiService = new ApiService();
 
 // Инициализация аутентификации только на клиентской стороне

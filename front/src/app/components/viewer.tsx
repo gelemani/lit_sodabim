@@ -116,6 +116,12 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
     const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
     const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
 
+    // AI chat state
+    const [aiPanelOpen, setAiPanelOpen] = useState(false);
+    const [aiMessages, setAiMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+    const [aiInput, setAiInput] = useState("");
+    const [aiLoading, setAiLoading] = useState(false);
+
     const groupKeyRef = useRef<string>("");
     const lastCursorSendRef = useRef<number>(0);
 
@@ -462,6 +468,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
 
         removedMeshesRef.current = [];
         const targets: { modelID: number; expressID: number }[] = [];
+        const toRemove: { mesh: THREE.Object3D; parent: THREE.Object3D }[] = [];
         for (const mesh of meshes) {
             const idAttr = mesh.geometry.getAttribute("expressID");
             if (idAttr) {
@@ -472,10 +479,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                 }
                 ids.forEach(id => targets.push({ modelID: mesh.modelID, expressID: id }));
             }
-            if (mesh.parent) {
-                mesh.parent.remove(mesh);
-                removedMeshesRef.current.push({ mesh, parent: mesh.parent });
-            }
+            if (mesh.parent) toRemove.push({ mesh, parent: mesh.parent });
         }
 
         const subsets: THREE.Object3D[] = [];
@@ -523,6 +527,10 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                 return { subset, dir: new THREE.Vector3(0, 1, 0), baseDist: baseOffset };
             }
         });
+
+        // Remove originals only after subsets are ready (no invisible-model flash)
+        toRemove.forEach(({ mesh, parent }) => { parent.remove(mesh); });
+        removedMeshesRef.current = toRemove;
 
         explodeDataRef.current = data;
         explodedSubsetsRef.current = subsets;
@@ -678,6 +686,26 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         );
     }
 
+    // ── AI chat ────────────────────────────────────────────────────────────────
+    const sendAiMessage = useCallback(async () => {
+        const text = aiInput.trim();
+        if (!text || aiLoading) return;
+        setAiMessages(prev => [...prev, { role: "user", text }]);
+        setAiInput("");
+        setAiLoading(true);
+        try {
+            const elemProps = selectedElement
+                ? JSON.stringify(selectedElement, null, 2)
+                : undefined;
+            const res = await apiService.aiChat(text, elemProps);
+            setAiMessages(prev => [...prev, { role: "ai", text: res.reply }]);
+        } catch {
+            setAiMessages(prev => [...prev, { role: "ai", text: "Ошибка при обращении к ИИ." }]);
+        } finally {
+            setAiLoading(false);
+        }
+    }, [aiInput, aiLoading, selectedElement]);
+
     // ── Toolbar button helper ──────────────────────────────────────────────────
     const TBtn = ({ icon, label, active, onClick, danger }: {
         icon: React.ReactNode; label: string; active?: boolean;
@@ -793,6 +821,11 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
 
                         <TBtn active={drawMode} onClick={enterDrawMode} label="Рисовать"
                             icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>} />
+
+                        <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", margin: "0 4px" }} />
+
+                        <TBtn active={aiPanelOpen} onClick={() => setAiPanelOpen(p => !p)} label="ИИ"
+                            icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>} />
 
                         <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", margin: "0 4px" }} />
 
@@ -942,7 +975,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                                 {comment.sketchSvg && (
                                                     <div dangerouslySetInnerHTML={{ __html: comment.sketchSvg }}
                                                         onClick={() => setSketchOverlay({ svg: comment.sketchSvg!, label: comment.elementName })}
-                                                        style={{ marginTop: 6, maxHeight: 56, overflow: "hidden", background: "#0a0c12", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
+                                                        style={{ marginTop: 6, maxHeight: 56, overflow: "hidden", background: "transparent", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
                                                 )}
                                                 {comment.cameraPositionJson && (
                                                     <button onClick={() => { try { flyToCamera(JSON.parse(comment.cameraPositionJson!)); } catch { /* ignore */ } }}
@@ -956,6 +989,85 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                         ));
                                     })()}
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── AI chat panel ── */}
+                    {aiPanelOpen && (
+                        <div style={{
+                            position: "fixed", right: isModalOpen ? 352 : 12, bottom: 80, width: 320, maxHeight: 480,
+                            background: "rgba(16,19,26,0.97)", backdropFilter: "blur(16px)",
+                            border: "1px solid rgba(255,255,255,0.07)", borderRadius: 14,
+                            zIndex: 30, display: "flex", flexDirection: "column",
+                            boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+                            transition: "right 0.2s",
+                        }}>
+                            {/* Header */}
+                            <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                                    <div style={{ width: 22, height: 22, borderRadius: 6, background: "linear-gradient(135deg,#3b82f6,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                        <svg width="11" height="11" fill="none" stroke="#fff" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                    </div>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", letterSpacing: "0.04em" }}>ИИ-ассистент</span>
+                                    {selectedElement && <span style={{ fontSize: 10, color: "#475569", background: "rgba(59,130,246,0.1)", padding: "1px 6px", borderRadius: 4, border: "1px solid rgba(59,130,246,0.2)" }}>
+                                        {getElementDisplayName(selectedElement, customNames)}
+                                    </span>}
+                                </div>
+                                <button onClick={() => setAiPanelOpen(false)} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", padding: 4, borderRadius: 5, display: "flex" }}>
+                                    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+
+                            {/* Messages */}
+                            <div style={{ flex: 1, overflow: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, minHeight: 120 }}>
+                                {aiMessages.length === 0 && (
+                                    <p style={{ fontSize: 12, color: "#374151", margin: 0, textAlign: "center", paddingTop: 16 }}>
+                                        {selectedElement ? `Задайте вопрос про «${getElementDisplayName(selectedElement, customNames)}»` : "Выберите элемент или задайте вопрос о модели"}
+                                    </p>
+                                )}
+                                {aiMessages.map((m, i) => (
+                                    <div key={i} style={{
+                                        alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                                        maxWidth: "88%",
+                                        background: m.role === "user" ? "rgba(59,130,246,0.15)" : "rgba(255,255,255,0.04)",
+                                        border: `1px solid ${m.role === "user" ? "rgba(59,130,246,0.25)" : "rgba(255,255,255,0.07)"}`,
+                                        borderRadius: m.role === "user" ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
+                                        padding: "7px 10px", fontSize: 12, color: m.role === "user" ? "#93c5fd" : "#e2e8f0",
+                                        lineHeight: 1.6, whiteSpace: "pre-wrap",
+                                    }}>{m.text}</div>
+                                ))}
+                                {aiLoading && (
+                                    <div style={{ alignSelf: "flex-start", display: "flex", gap: 4, padding: "8px 12px" }}>
+                                        {[0, 1, 2].map(i => (
+                                            <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: "#475569", animation: `shimmer 1s ${i * 0.2}s infinite` }} />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Input */}
+                            <div style={{ padding: "8px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 7, flexShrink: 0 }}>
+                                <input
+                                    value={aiInput}
+                                    onChange={e => setAiInput(e.target.value)}
+                                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendAiMessage(); } }}
+                                    placeholder="Спросите об элементе..."
+                                    style={{
+                                        flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                                        borderRadius: 8, color: "#f1f5f9", fontSize: 12, padding: "7px 10px",
+                                        outline: "none", caretColor: "#f1f5f9",
+                                    }}
+                                />
+                                <button onClick={() => void sendAiMessage()} disabled={aiLoading || !aiInput.trim()}
+                                    style={{
+                                        background: aiInput.trim() ? "linear-gradient(135deg,#3b82f6,#8b5cf6)" : "rgba(255,255,255,0.04)",
+                                        border: "none", borderRadius: 8, cursor: aiInput.trim() ? "pointer" : "default",
+                                        padding: "7px 10px", color: "#fff", display: "flex", alignItems: "center",
+                                        opacity: aiLoading ? 0.5 : 1, transition: "all 0.15s",
+                                    }}>
+                                    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                </button>
                             </div>
                         </div>
                     )}
@@ -990,7 +1102,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                             {c.sketchSvg && (
                                                 <div dangerouslySetInnerHTML={{ __html: c.sketchSvg }}
                                                     onClick={() => setSketchOverlay({ svg: c.sketchSvg!, label: c.elementName })}
-                                                    style={{ marginTop: 6, maxHeight: 44, overflow: "hidden", background: "#0a0c12", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
+                                                    style={{ marginTop: 6, maxHeight: 44, overflow: "hidden", background: "transparent", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
                                             )}
                                             {c.cameraPositionJson && (
                                                 <button onClick={() => { try { flyToCamera(JSON.parse(c.cameraPositionJson!)); } catch { /* ignore */ } }}

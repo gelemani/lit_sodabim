@@ -43,7 +43,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy(MyAllowSpecificOrigins, policy =>
     {
-        policy.WithOrigins(allowedOrigins)
+        policy.SetIsOriginAllowed(origin =>
+            {
+                if (allowedOrigins.Any(o => o == "*")) return true;
+                if (allowedOrigins.Any(o => !string.IsNullOrEmpty(o) && origin.Equals(o, StringComparison.OrdinalIgnoreCase))) return true;
+                // always allow localhost for dev
+                return origin.StartsWith("http://localhost") || origin.StartsWith("https://localhost");
+            })
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
@@ -103,6 +109,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 builder.WebHost.UseUrls("http://localhost:5080");
