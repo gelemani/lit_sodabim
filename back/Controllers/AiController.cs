@@ -20,15 +20,11 @@ namespace B.Controllers
         [HttpPost("chat")]
         public async Task<IActionResult> Chat([FromBody] AiChatRequest req)
         {
-            var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-                ?? _config["Anthropic:ApiKey"];
+            var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+                ?? _config["OpenAI:ApiKey"];
 
             if (string.IsNullOrWhiteSpace(apiKey))
-                return StatusCode(503, new { error = "AI service not configured. Set ANTHROPIC_API_KEY." });
-
-            var client = _http.CreateClient();
-            client.DefaultRequestHeaders.Add("x-api-key", apiKey);
-            client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+                return StatusCode(503, new { error = "AI service not configured. Set OPENAI_API_KEY." });
 
             var userContent = string.IsNullOrWhiteSpace(req.ElementProperties)
                 ? req.Message
@@ -36,22 +32,28 @@ namespace B.Controllers
 
             var body = new
             {
-                model = "claude-haiku-4-5-20251001",
+                model = "gpt-4o-mini",
                 max_tokens = 600,
-                system = "You are a BIM/IFC expert assistant embedded in a 3D model viewer. Answer questions about building elements, construction, and IFC data concisely. Respond in the same language the user writes in.",
-                messages = new[] { new { role = "user", content = userContent } }
+                messages = new object[]
+                {
+                    new { role = "system", content = "You are a BIM/IFC expert assistant embedded in a 3D model viewer. Answer questions about building elements, construction, and IFC data concisely. Respond in the same language the user writes in." },
+                    new { role = "user", content = userContent }
+                }
             };
+
+            var client = _http.CreateClient();
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
             try
             {
-                var resp = await client.PostAsJsonAsync("https://api.anthropic.com/v1/messages", body);
+                var resp = await client.PostAsJsonAsync("https://api.openai.com/v1/chat/completions", body);
                 if (!resp.IsSuccessStatusCode)
                 {
                     var err = await resp.Content.ReadAsStringAsync();
                     return StatusCode((int)resp.StatusCode, new { error = err });
                 }
-                var result = await resp.Content.ReadFromJsonAsync<AnthropicResponse>();
-                var text = result?.Content?.FirstOrDefault()?.Text ?? "";
+                var result = await resp.Content.ReadFromJsonAsync<OpenAiResponse>();
+                var text = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "";
                 return Ok(new { reply = text });
             }
             catch (Exception ex)
@@ -67,15 +69,21 @@ namespace B.Controllers
         public string? ElementProperties { get; set; }
     }
 
-    public class AnthropicResponse
+    public class OpenAiResponse
     {
-        [JsonPropertyName("content")]
-        public List<AnthropicContent>? Content { get; set; }
+        [JsonPropertyName("choices")]
+        public List<OpenAiChoice>? Choices { get; set; }
     }
 
-    public class AnthropicContent
+    public class OpenAiChoice
     {
-        [JsonPropertyName("text")]
-        public string? Text { get; set; }
+        [JsonPropertyName("message")]
+        public OpenAiMessage? Message { get; set; }
+    }
+
+    public class OpenAiMessage
+    {
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
     }
 }
