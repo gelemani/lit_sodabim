@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { IfcViewerAPI } from "web-ifc-viewer";
 import * as THREE from "three";
 import { gsap } from "gsap";
@@ -675,14 +676,17 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                         </div>
                     )}
 
-                    {/* Annotation canvas overlay */}
-                    <div style={{ position: "fixed", inset: 0, top: 42, zIndex: drawMode ? 200 : -1, pointerEvents: drawMode ? "all" : "none" }}>
-                        <AnnotationCanvas
-                            active={drawMode}
-                            onSave={onSketchSaved}
-                            onCancel={() => setDrawMode(false)}
-                        />
-                    </div>
+                    {/* Annotation canvas overlay — portal into body to bypass any stacking context */}
+                    {drawMode && createPortal(
+                        <div style={{ position: "fixed", inset: 0, top: 42, zIndex: 9999, pointerEvents: "all" }}>
+                            <AnnotationCanvas
+                                active={true}
+                                onSave={onSketchSaved}
+                                onCancel={() => setDrawMode(false)}
+                            />
+                        </div>,
+                        document.body
+                    )}
 
                     {/* Sketch overlay when viewing a comment */}
                     {sketchOverlay && (
