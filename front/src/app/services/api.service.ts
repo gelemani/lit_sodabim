@@ -294,12 +294,68 @@ class ApiService {
     }
   }
 
-  // Метод для выхода
   logout() {
     this.authToken = null;
     if (isClient) {
       localStorage.removeItem("authToken");
       localStorage.removeItem("token");
+      localStorage.removeItem("userId");
+      localStorage.removeItem("userName");
+      localStorage.removeItem("userSurname");
+      localStorage.removeItem("companyName");
+      localStorage.removeItem("companyPosition");
+      localStorage.removeItem("email");
+    }
+  }
+
+  async updateProfile(data: {
+    userName: string;
+    userSurname: string;
+    email: string;
+    companyName: string;
+    companyPosition: string;
+  }): Promise<ApiResponse<StoredUserInfo>> {
+    try {
+      const response = await this.axiosInstance.put<ApiResponse<StoredUserInfo>>(
+        `${API_PREFIX}/Auth/profile`,
+        data,
+      );
+      if (response.data.success && response.data.data && isClient) {
+        localStorage.setItem("userName", response.data.data.userName ?? "");
+        localStorage.setItem("userSurname", response.data.data.userSurname ?? "");
+        localStorage.setItem("companyName", response.data.data.companyName ?? "");
+        localStorage.setItem("companyPosition", response.data.data.companyPosition ?? "");
+        localStorage.setItem("email", response.data.data.email ?? "");
+      }
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        error: axios.isAxiosError(error)
+          ? error.response?.data?.error || error.message
+          : "Ошибка обновления профиля",
+      };
+    }
+  }
+
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<ApiResponse<void>> {
+    try {
+      const response = await this.axiosInstance.put<ApiResponse<void>>(
+        `${API_PREFIX}/Auth/change-password`,
+        data,
+      );
+      return response.data;
+    } catch (error) {
+      return {
+        success: false,
+        error: axios.isAxiosError(error)
+          ? error.response?.data?.error || error.message
+          : "Ошибка смены пароля",
+      };
     }
   }
 
@@ -692,7 +748,7 @@ class ApiService {
   async getIfcComments(
     projectId: number,
     fileId: number
-  ): Promise<{ success: boolean; data?: Array<{ id: number; expressId: number; elementName: string; commentText: string; userId: number; createdAt: string }>; error?: string }> {
+  ): Promise<{ success: boolean; data?: Array<{ id: number; expressId: number; elementName: string; commentText: string; userId: number; createdAt: string; cameraPositionJson?: string; sketchSvg?: string }>; error?: string }> {
     try {
       const response = await this.axiosInstance.get(
         `${API_PREFIX}/Project/ifc-comments?projectId=${projectId}&fileId=${fileId}`
@@ -710,7 +766,7 @@ class ApiService {
   async postIfcComment(
     projectId: number,
     fileId: number,
-    comment: { expressId: number; elementName: string; elementDataJson?: string; commentText: string; userId: number }
+    comment: { expressId: number; elementName: string; elementDataJson?: string; commentText: string; userId: number; cameraPositionJson?: string; sketchSvg?: string }
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
     try {
       const response = await this.axiosInstance.post(`${API_PREFIX}/Project/ifc-comments`, {
@@ -721,6 +777,8 @@ class ApiService {
         elementDataJson: comment.elementDataJson,
         commentText: comment.commentText,
         userId: comment.userId,
+        cameraPositionJson: comment.cameraPositionJson,
+        sketchSvg: comment.sketchSvg,
       });
       return { success: true, data: response.data };
     } catch (error) {

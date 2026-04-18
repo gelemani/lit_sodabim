@@ -16,5 +16,9 @@ namespace B.Models
         public string CommentText { get; set; } = string.Empty;
         public int UserId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        // Позиция и направление камеры в момент создания комментария
+        public string? CameraPositionJson { get; set; }
+        // SVG-эскиз, нарисованный поверх вьюера
+        public string? SketchSvg { get; set; }
     }
 }

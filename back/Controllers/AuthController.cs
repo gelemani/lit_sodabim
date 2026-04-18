@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using B.Models;
 using B.Repositories.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
@@ -24,6 +25,7 @@ namespace B.Controllers
 
         // Логин
         [HttpPost("login")]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.Login) || string.IsNullOrWhiteSpace(request.Password))
@@ -49,6 +51,7 @@ namespace B.Controllers
 
         // Регистрация
         [HttpPost("register")]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains("@"))
@@ -100,6 +103,72 @@ namespace B.Controllers
             return Ok(user);
         }
 
+        [HttpPut("profile")]
+        [Authorize]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+        {
+            var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            if (string.IsNullOrEmpty(sub) || !int.TryParse(sub, out var userId))
+                return Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(request.UserName))
+                return BadRequest(new { success = false, error = "Имя не может быть пустым." });
+            if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains('@'))
+                return BadRequest(new { success = false, error = "Некорректный email." });
+
+            try
+            {
+                var user = await _userRepository.UpdateProfileAsync(
+                    userId,
+                    request.UserName.Trim(),
+                    request.UserSurname.Trim(),
+                    request.Email.Trim(),
+                    request.CompanyName.Trim(),
+                    request.CompanyPosition.Trim());
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        user.Id,
+                        user.Login,
+                        user.UserName,
+                        user.UserSurname,
+                        user.Email,
+                        user.CompanyName,
+                        user.CompanyPosition
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { success = false, error = ex.Message });
+            }
+        }
+
+        [HttpPut("change-password")]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            var sub = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+            if (string.IsNullOrEmpty(sub) || !int.TryParse(sub, out var userId))
+                return Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(request.CurrentPassword))
+                return BadRequest(new { success = false, error = "Введите текущий пароль." });
+            if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
+                return BadRequest(new { success = false, error = "Новый пароль должен содержать не менее 6 символов." });
+            if (request.NewPassword != request.ConfirmPassword)
+                return BadRequest(new { success = false, error = "Пароли не совпадают." });
+
+            var changed = await _userRepository.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword);
+            if (!changed)
+                return BadRequest(new { success = false, error = "Текущий пароль неверен." });
+
+            return Ok(new { success = true });
+        }
+
         private string GenerateJwtToken(User user)
         {
             var secretKey = _configuration["Jwt:Secret"];
@@ -146,6 +215,22 @@ namespace B.Controllers
             public string ConfirmPassword { get; set; } = string.Empty;
             public string CompanyName { get; set; } = string.Empty;
             public string CompanyPosition { get; set; } = string.Empty;
+        }
+
+        public class UpdateProfileRequest
+        {
+            public string UserName { get; set; } = string.Empty;
+            public string UserSurname { get; set; } = string.Empty;
+            public string Email { get; set; } = string.Empty;
+            public string CompanyName { get; set; } = string.Empty;
+            public string CompanyPosition { get; set; } = string.Empty;
+        }
+
+        public class ChangePasswordRequest
+        {
+            public string CurrentPassword { get; set; } = string.Empty;
+            public string NewPassword { get; set; } = string.Empty;
+            public string ConfirmPassword { get; set; } = string.Empty;
         }
     }
 }

@@ -9,18 +9,47 @@ import {
   formatEmailInput,
 } from "@/app/utils/inputFormatters";
 
+const inp: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 14px",
+  background: "#131720",
+  border: "1px solid #2d3748",
+  borderRadius: 8,
+  color: "#f1f5f9",
+  fontSize: 14,
+  outline: "none",
+  boxSizing: "border-box",
+  transition: "border-color 0.15s",
+};
+
+const Field = ({
+  label,
+  children,
+  error,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  error?: string;
+  hint?: string;
+}) => (
+  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+    <label style={{ fontSize: 12, fontWeight: 500, color: "#94a3b8", letterSpacing: "0.03em" }}>
+      {label}
+    </label>
+    {children}
+    {hint && !error && <span style={{ fontSize: 11, color: "#475569" }}>{hint}</span>}
+    {error && <span style={{ fontSize: 11, color: "#ef4444" }}>{error}</span>}
+  </div>
+);
+
 export function LoginPage() {
   const router = useRouter();
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
   const [, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
-  const [userId, setUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const storedUserId = localStorage.getItem("userId");
-    if (storedUserId) setUserId(storedUserId);
-  }, []);
+  const [loading, setLoading] = useState(false);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const handleLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,81 +78,53 @@ export function LoginPage() {
     setErrors((prev) => ({ ...prev, [e.target.name]: "" }));
   };
 
+  const toast = (text: string, type: "error" | "success" = "error") => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
   const handleLogin = async () => {
-    if (loginData.username.trim() && loginData.password.trim()) {
-      try {
-        const response = await apiService.login({
-          login: loginData.username.trim(),
-          password: loginData.password.trim(),
-        });
-
-        if (response.success && response.data) {
-          setIsAuthenticated(true);
-          const {
-            companyName,
-            userSurname,
-            userName,
-            login,
-            email,
-            companyPosition,
-            userId: uid,
-          } = response.data;
-
-          localStorage.setItem("companyName", companyName ?? "");
-          localStorage.setItem("userSurname", userSurname ?? "");
-          localStorage.setItem("userName", userName ?? "");
-          localStorage.setItem("login", login ?? "");
-          localStorage.setItem("email", email ?? "");
-          localStorage.setItem("companyPosition", companyPosition ?? "");
-          localStorage.setItem("userId", String(uid ?? ""));
-          router.push(
-            `/projects?companyName=${encodeURIComponent(companyName ?? "")}`,
-          );
-        } else {
-          setToastMessage(response.error || "Ошибка авторизации");
-          setTimeout(() => setToastMessage(null), 3000);
-        }
-      } catch (error) {
-        console.error("Ошибка при попытке войти:", error);
-        setToastMessage("Произошла ошибка при авторизации.");
-        setTimeout(() => setToastMessage(null), 3000);
+    if (!loginData.username.trim() || !loginData.password.trim()) {
+      toast("Введите логин и пароль");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await apiService.login({
+        login: loginData.username.trim(),
+        password: loginData.password.trim(),
+      });
+      if (response.success && response.data) {
+        setIsAuthenticated(true);
+        const { companyName, userSurname, userName, login, email, companyPosition, userId: uid } = response.data;
+        localStorage.setItem("companyName", companyName ?? "");
+        localStorage.setItem("userSurname", userSurname ?? "");
+        localStorage.setItem("userName", userName ?? "");
+        localStorage.setItem("login", login ?? "");
+        localStorage.setItem("email", email ?? "");
+        localStorage.setItem("companyPosition", companyPosition ?? "");
+        localStorage.setItem("userId", String(uid ?? ""));
+        router.push(`/projects?companyName=${encodeURIComponent(companyName ?? "")}`);
+      } else {
+        toast(response.error || "Неверный логин или пароль");
       }
-    } else {
-      setToastMessage("Введите имя пользователя и пароль");
-      setTimeout(() => setToastMessage(null), 3000);
+    } catch {
+      toast("Ошибка соединения с сервером");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleRegister = async () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const required = ["login", "userName", "userSurname", "email", "password", "confirmPassword", "companyName", "companyPosition"] as const;
+    const missing = required.filter((k) => !registerData[k].trim());
+    if (missing.length) { toast("Заполните все обязательные поля"); return; }
+    if (!emailRegex.test(registerData.email)) { toast("Введите корректный email"); return; }
+    if (registerData.password !== registerData.confirmPassword) { toast("Пароли не совпадают"); return; }
+    if (registerData.password.length < 6) { toast("Пароль должен быть не менее 6 символов"); return; }
 
-    if (
-      !registerData.login.trim() ||
-      !registerData.userName.trim() ||
-      !registerData.userSurname.trim() ||
-      !registerData.email.trim() ||
-      !registerData.password.trim() ||
-      !registerData.confirmPassword.trim() ||
-      !registerData.companyName.trim() ||
-      !registerData.companyPosition.trim()
-    ) {
-      setToastMessage("Заполните все поля для регистрации");
-      setTimeout(() => setToastMessage(null), 3000);
-      return;
-    }
-
-    if (!emailRegex.test(registerData.email)) {
-      setToastMessage("Введите корректный email");
-      setTimeout(() => setToastMessage(null), 3000);
-      return;
-    }
-
-    if (registerData.password !== registerData.confirmPassword) {
-      setToastMessage("Пароли не совпадают");
-      setTimeout(() => setToastMessage(null), 3000);
-      return;
-    }
-
+    setLoading(true);
     try {
       const response = await apiService.register({
         login: registerData.login,
@@ -134,19 +135,9 @@ export function LoginPage() {
         companyName: registerData.companyName,
         companyPosition: registerData.companyPosition,
       });
-
       if (response.success && response.data) {
         setIsAuthenticated(true);
-        const {
-          companyName,
-          userSurname,
-          userName,
-          login,
-          email,
-          companyPosition,
-          userId: uid,
-        } = response.data;
-
+        const { companyName, userSurname, userName, login, email, companyPosition, userId: uid } = response.data;
         localStorage.setItem("companyName", companyName ?? "");
         localStorage.setItem("userSurname", userSurname ?? "");
         localStorage.setItem("userName", userName ?? "");
@@ -154,323 +145,208 @@ export function LoginPage() {
         localStorage.setItem("email", email ?? "");
         localStorage.setItem("companyPosition", companyPosition ?? "");
         localStorage.setItem("userId", String(uid ?? ""));
-        if (registerData.phone.trim()) {
-          localStorage.setItem("userPhone", registerData.phone);
-        }
-        router.push(
-          `/projects?companyName=${encodeURIComponent(companyName ?? "")}`,
-        );
+        if (registerData.phone.trim()) localStorage.setItem("userPhone", registerData.phone);
+        router.push(`/projects?companyName=${encodeURIComponent(companyName ?? "")}`);
       } else {
         if (response.error === "User already exists") {
-          setErrors({
-            login: "Пользователь уже существует",
-            email: "Email уже зарегистрирован",
-          });
-          setToastMessage(
-            "Пользователь с таким логином или email уже зарегистрирован",
-          );
-          setTimeout(() => setToastMessage(null), 3000);
+          setErrors({ login: "Уже занят", email: "Email уже зарегистрирован" });
+          toast("Пользователь с таким логином или email уже существует");
         } else {
-          setToastMessage(response.error || "Ошибка регистрации");
-          setTimeout(() => setToastMessage(null), 3000);
+          toast(response.error || "Ошибка регистрации");
         }
       }
-    } catch (error) {
-      console.error("Ошибка при попытке зарегистрироваться:", error);
-      setToastMessage("Произошла ошибка при регистрации.");
-      setTimeout(() => setToastMessage(null), 3000);
+    } catch {
+      toast("Ошибка соединения с сервером");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const buttonStyle = {
-    padding: "10px 20px",
-    marginTop: "14px",
-    width: "300px",
-    borderRadius: "10px",
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") activeTab === "login" ? void handleLogin() : void handleRegister();
   };
 
   return (
-    <>
+    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", flexDirection: "column" }}>
+      {/* Navbar */}
+      <nav style={{ padding: "0 32px", height: 52, display: "flex", alignItems: "center", borderBottom: "1px solid #1e2433", background: "#0f1117" }}>
+        <button onClick={() => router.push("/")}
+          style={{ background: "none", border: "none", color: "#f1f5f9", fontSize: 16, fontWeight: 700, cursor: "pointer", letterSpacing: -0.5, padding: 0 }}>
+          SodaBIM
+        </button>
+      </nav>
+
+      {/* Toast */}
       {toastMessage && (
-        <div
-          style={{
-            position: "fixed",
-            top: "30%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            backgroundColor: "#ff4d4f",
-            color: "white",
-            padding: "10px 20px",
-            borderRadius: "5px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            zIndex: 1000,
-          }}
-        >
-          {toastMessage}
+        <div className="animate-fade-in" style={{
+          position: "fixed", top: 72, left: "50%", transform: "translateX(-50%)",
+          background: toastMessage.type === "error" ? "#7f1d1d" : "#14532d",
+          color: "#fef2f2", padding: "10px 20px", borderRadius: 8,
+          border: `1px solid ${toastMessage.type === "error" ? "#ef4444" : "#22c55e"}`,
+          fontSize: 13, zIndex: 9999, boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+          whiteSpace: "nowrap",
+        }}>
+          {toastMessage.text}
         </div>
       )}
-      <div
-        style={{
-          position: "fixed",
-          top: "0",
-          left: "0",
-          width: "100%",
-          backgroundColor: "#242B35",
-          padding: "10px 20px",
-          display: "flex",
-          alignItems: "center",
-          color: "white",
-          fontSize: "1.5em",
-          fontWeight: "bold",
-          zIndex: 1000,
-          boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
-        }}
-      >
-        <button
-          onClick={() => router.push("/")}
-          style={{
-            background: "none",
-            border: "none",
-            color: "white",
-            fontSize: "0.9em",
-            cursor: "pointer",
-            padding: "4px 8px",
-            marginRight: 8,
-          }}
-          title="Назад"
-        >
-          ← Назад
-        </button>
-        <span style={{ marginLeft: "4px" }}>SodaBIM</span>
-      </div>
 
-      <div
-        className="auth-container"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
-      >
-        {activeTab === "login" ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "7px",
-              padding: "44px",
-              backgroundColor: "#242B35",
-              borderRadius: "4px",
-              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
-              width: "450px",
-              marginTop: "170px",
-              border: "1px solid #1F252E",
-            }}
-          >
-            <h1 style={{ fontSize: "1.2em", paddingBottom: "2.6px" }}>
-              {activeTab === "login" ? "Войти" : "Регистрация"}
+      {/* Center card */}
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
+        <div style={{ width: "100%", maxWidth: 420, animation: "fadeIn 0.3s ease both" }}>
+          {/* Logo mark */}
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12,
+              background: "linear-gradient(135deg,#3b82f6,#8b5cf6)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              marginBottom: 12, boxShadow: "0 4px 16px rgba(59,130,246,0.3)",
+            }}>
+              <svg width="22" height="22" fill="none" stroke="#fff" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                  d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3M9 7h1m-1 4h1m4-4h1m-1 4h1M9 21v-4a2 2 0 012-2h2a2 2 0 012 2v4" />
+              </svg>
+            </div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f1f5f9", margin: 0, letterSpacing: -0.5 }}>
+              {activeTab === "login" ? "Добро пожаловать" : "Создать аккаунт"}
             </h1>
-            <p>Логин</p>
-            <input
-              name="username"
-              type="text"
-              placeholder="Логин"
-              value={loginData.username}
-              onChange={handleLoginChange}
-            />
-            <p>Пароль</p>
-            <input
-              name="password"
-              type="password"
-              placeholder="Пароль"
-              value={loginData.password}
-              onChange={handleLoginChange}
-            />
-            <button onClick={handleLogin} style={buttonStyle}>
-              Войти
-            </button>
-            <h4>
-              Нет аккаунта?{" "}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setActiveTab("register");
-                }}
-              >
-                Зарегистрироваться
-              </a>
-            </h4>
+            <p style={{ fontSize: 14, color: "#64748b", margin: "6px 0 0", fontWeight: 400 }}>
+              {activeTab === "login" ? "Войдите в SodaBIM" : "Начните работу с BIM-моделями"}
+            </p>
           </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "7px",
-              padding: "70px",
-              backgroundColor: "#242B35",
-              borderRadius: "4px",
-              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
-              width: "450px",
-              marginTop: "85px",
-              border: "1px solid #1F252E",
-            }}
-          >
-            <h1 style={{ fontSize: "1.2em", paddingBottom: "2.6px" }}>
-              Регистрация
-            </h1>
-            <p>Логин</p>
-            <input
-              name="login"
-              type="text"
-              placeholder="Логин"
-              value={registerData.login}
-              onChange={(e) => handleRegisterChange(e)}
-            />
-            {errors.login && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.login}
-              </span>
-            )}
 
-            <p>Имя</p>
-            <input
-              name="userName"
-              type="text"
-              placeholder="Имя"
-              value={registerData.userName}
-              onChange={(e) => handleRegisterChange(e, formatNameInput)}
-            />
-            {errors.userName && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.userName}
-              </span>
-            )}
-
-            <p>Фамилия</p>
-            <input
-              name="userSurname"
-              type="text"
-              placeholder="Фамилия"
-              value={registerData.userSurname}
-              onChange={(e) => handleRegisterChange(e, formatNameInput)}
-            />
-            {errors.userSurname && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.userSurname}
-              </span>
-            )}
-
-            <p>Email</p>
-            <input
-              name="email"
-              type="text"
-              placeholder="customer@mail.ru"
-              value={registerData.email}
-              onChange={(e) => handleRegisterChange(e, formatEmailInput)}
-            />
-            {errors.email && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.email}
-              </span>
-            )}
-
-            <p>Телефон</p>
-            <input
-              name="phone"
-              type="tel"
-              placeholder="+7 (912) 345-67-89"
-              value={registerData.phone}
-              onChange={(e) => handleRegisterChange(e, formatPhoneInput)}
-            />
-            <span
-              style={{
-                color: "gray",
-                fontSize: "12px",
-                alignSelf: "flex-start",
-              }}
-            >
-              Необязательно
-            </span>
-
-            <p>Пароль</p>
-            <input
-              name="password"
-              type="password"
-              placeholder="Пароль"
-              value={registerData.password}
-              onChange={(e) => handleRegisterChange(e)}
-            />
-            {errors.password && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.password}
-              </span>
-            )}
-
-            <p>Подтвердите пароль</p>
-            <input
-              name="confirmPassword"
-              type="password"
-              placeholder="Подтвердите пароль"
-              value={registerData.confirmPassword}
-              onChange={(e) => handleRegisterChange(e)}
-            />
-            {errors.confirmPassword && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.confirmPassword}
-              </span>
-            )}
-
-            <p>Название компании</p>
-            <input
-              name="companyName"
-              type="text"
-              placeholder='ООО "Солнышко"'
-              value={registerData.companyName}
-              onChange={(e) => handleRegisterChange(e)}
-            />
-            {errors.companyName && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.companyName}
-              </span>
-            )}
-
-            <p>Должность</p>
-            <input
-              name="companyPosition"
-              type="text"
-              placeholder="CEO"
-              value={registerData.companyPosition}
-              onChange={(e) => handleRegisterChange(e, formatNameInput)}
-            />
-            {errors.companyPosition && (
-              <span style={{ color: "red", fontSize: "12px" }}>
-                {errors.companyPosition}
-              </span>
-            )}
-
-            <button onClick={handleRegister} style={buttonStyle}>
-              Зарегистрироваться
-            </button>
-            <h4>
-              Уже есть аккаунт?{" "}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setActiveTab("login");
-                }}
-              >
-                Войти
-              </a>
-            </h4>
+          {/* Tab switcher */}
+          <div style={{ display: "flex", background: "#131720", borderRadius: 10, padding: 4, marginBottom: 24, border: "1px solid #1e2433" }}>
+            {(["login", "register"] as const).map(tab => (
+              <button key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                  fontSize: 13, fontWeight: 500, transition: "all 0.15s",
+                  background: activeTab === tab ? "#1a1d24" : "transparent",
+                  color: activeTab === tab ? "#f1f5f9" : "#64748b",
+                  boxShadow: activeTab === tab ? "0 1px 4px rgba(0,0,0,0.4)" : "none",
+                }}>
+                {tab === "login" ? "Войти" : "Регистрация"}
+              </button>
+            ))}
           </div>
-        )}
+
+          {/* Form card */}
+          <div style={{ background: "#131720", border: "1px solid #1e2433", borderRadius: 14, padding: "24px 24px 20px", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+            {activeTab === "login" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }} onKeyDown={onKey}>
+                <Field label="Логин">
+                  <input name="username" type="text" placeholder="Введите логин"
+                    value={loginData.username} onChange={handleLoginChange}
+                    style={inp}
+                    onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                    onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                </Field>
+                <Field label="Пароль">
+                  <input name="password" type="password" placeholder="Введите пароль"
+                    value={loginData.password} onChange={handleLoginChange}
+                    style={inp}
+                    onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                    onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                </Field>
+                <button onClick={() => void handleLogin()} disabled={loading}
+                  style={{
+                    width: "100%", padding: "11px", marginTop: 4,
+                    background: loading ? "#1e3a5f" : "linear-gradient(135deg,#3b82f6,#2563eb)",
+                    color: "#fff", border: "none", borderRadius: 9, cursor: loading ? "not-allowed" : "pointer",
+                    fontSize: 14, fontWeight: 600, transition: "opacity 0.15s", opacity: loading ? 0.7 : 1,
+                    boxShadow: "0 2px 8px rgba(59,130,246,0.25)",
+                  }}>
+                  {loading ? "Вход..." : "Войти"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }} onKeyDown={onKey}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Имя" error={errors.userName}>
+                    <input name="userName" type="text" placeholder="Иван" value={registerData.userName}
+                      onChange={(e) => handleRegisterChange(e, formatNameInput)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = errors.userName ? "#ef4444" : "#2d3748"; }} />
+                  </Field>
+                  <Field label="Фамилия" error={errors.userSurname}>
+                    <input name="userSurname" type="text" placeholder="Иванов" value={registerData.userSurname}
+                      onChange={(e) => handleRegisterChange(e, formatNameInput)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = errors.userSurname ? "#ef4444" : "#2d3748"; }} />
+                  </Field>
+                </div>
+                <Field label="Логин" error={errors.login}>
+                  <input name="login" type="text" placeholder="ivan_ivanov" value={registerData.login}
+                    onChange={(e) => handleRegisterChange(e)} style={{ ...inp, borderColor: errors.login ? "#ef4444" : "#2d3748" }}
+                    onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                    onBlur={e => { e.target.style.borderColor = errors.login ? "#ef4444" : "#2d3748"; }} />
+                </Field>
+                <Field label="Email" error={errors.email}>
+                  <input name="email" type="text" placeholder="ivan@company.ru" value={registerData.email}
+                    onChange={(e) => handleRegisterChange(e, formatEmailInput)} style={{ ...inp, borderColor: errors.email ? "#ef4444" : "#2d3748" }}
+                    onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                    onBlur={e => { e.target.style.borderColor = errors.email ? "#ef4444" : "#2d3748"; }} />
+                </Field>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Пароль" error={errors.password}>
+                    <input name="password" type="password" placeholder="Мин. 6 символов" value={registerData.password}
+                      onChange={(e) => handleRegisterChange(e)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                  </Field>
+                  <Field label="Повторите пароль" error={errors.confirmPassword}>
+                    <input name="confirmPassword" type="password" placeholder="Повторите" value={registerData.confirmPassword}
+                      onChange={(e) => handleRegisterChange(e)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                  </Field>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <Field label="Компания" error={errors.companyName}>
+                    <input name="companyName" type="text" placeholder='ООО "Проект"' value={registerData.companyName}
+                      onChange={(e) => handleRegisterChange(e)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                  </Field>
+                  <Field label="Должность" error={errors.companyPosition}>
+                    <input name="companyPosition" type="text" placeholder="BIM-менеджер" value={registerData.companyPosition}
+                      onChange={(e) => handleRegisterChange(e, formatNameInput)} style={inp}
+                      onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                      onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                  </Field>
+                </div>
+                <Field label="Телефон" hint="Необязательно">
+                  <input name="phone" type="tel" placeholder="+7 (912) 345-67-89" value={registerData.phone}
+                    onChange={(e) => handleRegisterChange(e, formatPhoneInput)} style={inp}
+                    onFocus={e => { e.target.style.borderColor = "#3b82f6"; }}
+                    onBlur={e => { e.target.style.borderColor = "#2d3748"; }} />
+                </Field>
+                <button onClick={() => void handleRegister()} disabled={loading}
+                  style={{
+                    width: "100%", padding: "11px", marginTop: 4,
+                    background: loading ? "#1e3a5f" : "linear-gradient(135deg,#3b82f6,#2563eb)",
+                    color: "#fff", border: "none", borderRadius: 9, cursor: loading ? "not-allowed" : "pointer",
+                    fontSize: 14, fontWeight: 600, transition: "opacity 0.15s", opacity: loading ? 0.7 : 1,
+                    boxShadow: "0 2px 8px rgba(59,130,246,0.25)",
+                  }}>
+                  {loading ? "Регистрация..." : "Создать аккаунт"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Switch link */}
+          <p style={{ textAlign: "center", marginTop: 16, fontSize: 13, color: "#64748b" }}>
+            {activeTab === "login" ? "Нет аккаунта? " : "Уже есть аккаунт? "}
+            <button onClick={() => setActiveTab(activeTab === "login" ? "register" : "login")}
+              style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontSize: 13, padding: 0, fontWeight: 500 }}>
+              {activeTab === "login" ? "Зарегистрироваться" : "Войти"}
+            </button>
+          </p>
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -83,5 +83,7 @@ namespace B.Controllers
         public string? ElementDataJson { get; set; }
         public string CommentText { get; set; } = string.Empty;
         public int UserId { get; set; }
+        public string? CameraPositionJson { get; set; }
+        public string? SketchSvg { get; set; }
     }
 }

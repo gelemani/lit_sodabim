@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using B.Models;
 using B.Repositories.Interfaces;
 using B.Data;
+using B.Hubs;
 
 namespace B.Controllers
 {
@@ -13,12 +15,22 @@ namespace B.Controllers
         private readonly IProjectRepository _projectRepository;
         private readonly IUserRepository _userRepository;
         private readonly DatabaseContext _context;
+        private readonly IConfiguration _configuration;
+        private readonly IHubContext<CommentHub> _commentHub;
 
-        public ProjectController(IProjectRepository projectRepository, IUserRepository userRepository, DatabaseContext context)
+        private static readonly HashSet<string> AllowedExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".ifc", ".ifczip", ".pdf", ".docx", ".xlsx", ".dwg", ".rvt", ".png", ".jpg", ".jpeg"
+        };
+
+        public ProjectController(IProjectRepository projectRepository, IUserRepository userRepository,
+            DatabaseContext context, IConfiguration configuration, IHubContext<CommentHub> commentHub)
         {
             _projectRepository = projectRepository;
             _userRepository = userRepository;
             _context = context;
+            _configuration = configuration;
+            _commentHub = commentHub;
         }
 
         [HttpGet("list")]
@@ -113,7 +125,17 @@ namespace B.Controllers
             var comments = await _context.IfcComponentComments
                 .Where(c => c.ProjectId == projectId && c.ProjectFileId == fileId)
                 .OrderByDescending(c => c.CreatedAt)
-                .Select(c => new { c.Id, c.ExpressId, c.ElementName, c.CommentText, c.UserId, c.CreatedAt })
+                .Select(c => new
+                {
+                    c.Id,
+                    c.ExpressId,
+                    c.ElementName,
+                    c.CommentText,
+                    c.UserId,
+                    c.CreatedAt,
+                    c.CameraPositionJson,
+                    c.SketchSvg
+                })
                 .ToListAsync();
             return Ok(comments);
         }
@@ -132,52 +154,76 @@ namespace B.Controllers
                 ElementDataJson = request.ElementDataJson,
                 CommentText = request.CommentText.Trim(),
                 UserId = request.UserId,
+                CameraPositionJson = request.CameraPositionJson,
+                SketchSvg = request.SketchSvg,
                 CreatedAt = DateTime.UtcNow
             };
             _context.IfcComponentComments.Add(comment);
             await _context.SaveChangesAsync();
-            return Ok(new { comment.Id, comment.ExpressId, comment.ElementName, comment.CommentText, comment.UserId, comment.CreatedAt });
+
+            var payload = new
+            {
+                comment.Id,
+                comment.ExpressId,
+                comment.ElementName,
+                comment.CommentText,
+                comment.UserId,
+                comment.CreatedAt,
+                comment.CameraPositionJson,
+                comment.SketchSvg
+            };
+
+            // Оповещаем всех подключённых клиентов в комнате проекта
+            var groupKey = $"project-{request.ProjectId}-file-{request.ProjectFileId}";
+            await _commentHub.Clients.Group(groupKey).SendAsync("NewComment", payload);
+
+            return Ok(payload);
         }
 
         [HttpPost("{projectId}/files")]
         public async Task<IActionResult> UploadFiles(int projectId, [FromForm] List<IFormFile> files)
         {
             if (files == null || files.Count == 0)
-            {
                 return BadRequest("No files uploaded.");
-            }
 
             var project = await _projectRepository.GetByIdAsync(projectId);
             if (project == null)
-            {
                 return NotFound($"Project with ID {projectId} not found.");
-            }
+
+            var maxSize = _configuration.GetValue<long>("FileUpload:MaxFileSizeBytes", 524_288_000);
+            var configExts = _configuration["FileUpload:AllowedExtensions"];
+            var allowed = configExts != null
+                ? new HashSet<string>(configExts.Split(',').Select(e => e.Trim()), StringComparer.OrdinalIgnoreCase)
+                : AllowedExtensions;
 
             var projectFiles = new List<ProjectFile>();
 
             foreach (var file in files)
             {
+                if (file.Length > maxSize)
+                    return BadRequest($"Файл «{file.FileName}» превышает максимально допустимый размер {maxSize / 1_048_576} МБ.");
+
+                var ext = Path.GetExtension(file.FileName);
+                if (!allowed.Contains(ext))
+                    return BadRequest($"Тип файла «{ext}» не разрешён. Допустимые типы: {string.Join(", ", allowed)}.");
+
                 using var ms = new MemoryStream();
                 await file.CopyToAsync(ms);
-                var fileBytes = ms.ToArray();
 
-                var projectFile = new ProjectFile
+                projectFiles.Add(new ProjectFile
                 {
                     FileName = file.FileName,
-                    FileData = fileBytes,
-                    ContentType = string.IsNullOrWhiteSpace(file.ContentType) 
-                        ? "application/octet-stream" 
+                    FileData = ms.ToArray(),
+                    ContentType = string.IsNullOrWhiteSpace(file.ContentType)
+                        ? "application/octet-stream"
                         : file.ContentType,
                     CreatedAt = DateTime.UtcNow,
                     LastModified = DateTime.UtcNow,
                     ProjectId = projectId
-                };
-
-                projectFiles.Add(projectFile);
+                });
             }
 
             await _projectRepository.AddProjectFilesAsync(projectId, projectFiles);
-
             return Ok(new { Message = $"{files.Count} files uploaded successfully." });
         }
 

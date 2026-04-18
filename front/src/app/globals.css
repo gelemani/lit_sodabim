@@ -2,65 +2,145 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Переменные темы */
-:root {
-  --background-color: #1f252e;
-  --text-color: #e3e8ef;
-  --accent-color: #a3d5ff;
-  --secondary-color: #f3b6d0;
-  --button-bg: #2c3440;
-  --button-hover: #3a4452;
-  --modal-bg: #fff;
-  --modal-text: hsl(0, 0%, 0%);
-}
-
+/* ── CSS-переменные темы ─────────────────────────────────────────────────── */
+:root,
 :root[data-theme="dark"] {
-  --background-color: #1f252e;
-  --text-color: #e3e8ef;
-  --accent-color: #a3d5ff;
-  --secondary-color: #f3b6d0;
-  --button-bg: #2c3440;
-  --button-hover: #3a4452;
-  --modal-bg: #1f252e;
-  --modal-text: #e3e8ef;
+  --background-color: #0f1117;
+  --surface-color: #1a1d24;
+  --surface-2: #232830;
+  --text-color: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent-color: #3b82f6;
+  --accent-hover: #2563eb;
+  --secondary-color: #8b5cf6;
+  --danger-color: #ef4444;
+  --success-color: #22c55e;
+  --border-color: #2d3748;
+  --button-bg: #1e2530;
+  --button-hover: #2d3748;
+  --modal-bg: #1a1d24;
+  --modal-text: #e2e8f0;
+  --glass-bg: rgba(26, 29, 36, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
 }
 
-/* Базовые стили для body */
+/* ── Анимации ─────────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(59,130,246,0); }
+}
+
+@keyframes shimmer {
+  0%   { opacity: 0.5; }
+  50%  { opacity: 1; }
+  100% { opacity: 0.5; }
+}
+
+.animate-fade-in    { animation: fadeIn 0.25s ease both; }
+.animate-slide-right { animation: slideInRight 0.25s ease both; }
+.animate-slide-left  { animation: slideInLeft 0.25s ease both; }
+
+/* ── Glass morphism ──────────────────────────────────────────────────────── */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+}
+
+.glass-card {
+  background: #131720;
+  border: 1px solid #1e2433;
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s, border-color 0.2s, background 0.15s;
+}
+
+.glass-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: #2a3350;
+  background: #161d2e;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
 body {
   background-color: var(--background-color);
   color: var(--text-color);
-  transition:
-    background-color 0.3s,
-    color 0.3s;
+  transition: background-color 0.3s, color 0.3s;
+  font-feature-settings: "cv02","cv03","cv04","cv11";
 }
 
-/* Кнопки */
+/* ── Кнопки ──────────────────────────────────────────────────────────────── */
 .button,
 button {
   position: relative;
-  padding: 10px 20px;
-  font-size: 16px;
-  border-radius: 3px;
-  border: none;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid transparent;
   cursor: pointer;
   background-color: var(--button-bg);
   color: var(--text-color);
-  /*transition: background-color 0.3s, transform 0.2s;*/
-  transition: background-color 0.3s;
+  transition: background-color 0.18s, transform 0.15s, box-shadow 0.18s, border-color 0.18s;
+  outline: none;
 }
 
 .button:hover,
 button:hover {
   background-color: var(--button-hover);
-  /*transform: scale(1.05);*/
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
-.button.active,
+.button:active,
 button:active {
-  background-color: var(--accent-color);
-  color: white;
-  /*transform: scale(1);*/
+  transform: translateY(0);
+  box-shadow: none;
 }
+
+.button.primary {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #fff;
+}
+
+.button.primary:hover {
+  background-color: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.button.danger {
+  background-color: var(--danger-color);
+  color: #fff;
+}
+
+/* кнопка «Сохранить» в viewer — глобальный стиль */
+button.save {
+  background-color: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+button.save:hover { background-color: var(--accent-hover); }
 
 /* Кастомная кнопка загрузки файла */
 .custom-file-upload {
@@ -414,4 +494,53 @@ textarea::placeholder {
   padding-left: 12px;
   border-left: 1px solid #ccc;
   margin-top: 4px;
+}
+
+/* ── Адаптивность (планшеты и мобильные) ─────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Боковые панели — полная ширина снизу */
+  .modal-container.bim360-panel {
+    position: fixed !important;
+    right: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-height: 60vh;
+    border-radius: 16px 16px 0 0;
+    overflow-y: auto;
+  }
+
+  /* Тулбар снизу — скрываем часть кнопок */
+  .viewer-bottom-toolbar {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px !important;
+    padding: 8px 12px !important;
+  }
+}
+
+/* ── Scrollbar кастомный ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+/* ── Focus visible (доступность) ─────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* ── Skeleton loading ────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #1e2530 25%, #2d3748 50%, #1e2530 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
 }

@@ -23,6 +23,9 @@ namespace B.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("CameraPositionJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("CommentText")
                         .IsRequired()
                         .HasMaxLength(2000)
@@ -47,6 +50,9 @@ namespace B.Migrations
 
                     b.Property<int>("ProjectId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SketchSvg")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("UserId")
                         .HasColumnType("INTEGER");

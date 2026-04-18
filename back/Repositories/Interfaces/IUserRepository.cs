@@ -10,5 +10,7 @@ namespace B.Repositories.Interfaces
         Task<bool> ValidateCredentialsAsync(string login, string password);
         Task<User?> GetByIdAsync(int id);
         Task<IEnumerable<User>> GetAllAsync();
+        Task<User> UpdateProfileAsync(int id, string userName, string userSurname, string email, string companyName, string companyPosition);
+        Task<bool> ChangePasswordAsync(int id, string currentPassword, string newPassword);
     }
 }
