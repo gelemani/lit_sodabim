@@ -23,10 +23,13 @@ export default function CommentWithSketch({
       </label>
       <textarea
         style={{
-          marginTop: 4, width: "100%", minHeight: 60,
-          background: "#252a33", border: "1px solid #374151",
-          borderRadius: 6, color: "#f1f5f9", padding: 8, resize: "vertical",
-          fontSize: 13, boxSizing: "border-box"
+          marginTop: 4, width: "100%", minHeight: 64,
+          background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 7, color: "#f1f5f9", caretColor: "#f1f5f9",
+          padding: "8px 10px", resize: "vertical",
+          fontSize: 13, lineHeight: 1.5, boxSizing: "border-box",
+          outline: "none",
+          WebkitTextFillColor: "#f1f5f9",
         }}
         placeholder="Добавьте комментарий к элементу..."
         value={commentText}

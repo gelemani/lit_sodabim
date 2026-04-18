@@ -107,12 +107,11 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
     const [modelStructure, setModelStructure] = useState<TreeNode | null>(null);
-    const [exploded, setExploded] = useState(false);
+    const [explodeValue, setExplodeValue] = useState(0); // 0 = collapsed, 1 = full
     const [isTreeCollapsed, setIsTreeCollapsed] = useState(true);
     const [selectedIDs, setSelectedIDs] = useState<Set<number>>(new Set());
     const [customNames, setCustomNames] = useState<Record<string, string>>({});
     const [treeSearch, setTreeSearch] = useState("");
-    const [explodeScale, setExplodeScale] = useState(1);
     const [userNameMap, setUserNameMap] = useState<Record<number, string>>({});
     const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
     const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
@@ -126,8 +125,14 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
     const [sketchOverlay, setSketchOverlay] = useState<{ svg: string; label: string } | null>(null);
     const savedCameraRef = useRef<CameraSnapshot | null>(null);
 
+    // Explode refs
+    interface ExplodeData { subset: THREE.Object3D; dir: THREE.Vector3; baseDist: number }
+    const explodeDataRef = useRef<ExplodeData[]>([]);
     const explodedSubsetsRef = useRef<THREE.Object3D[]>([]);
     const removedMeshesRef = useRef<{ mesh: THREE.Object3D; parent: THREE.Object3D }[]>([]);
+    const explodePreparedRef = useRef(false);
+    const explodePreparingRef = useRef(false);
+    const pendingExplodeRef = useRef(0);
 
     const currentUserId = typeof window !== "undefined" ? parseInt(localStorage.getItem("userId") || "0", 10) : 0;
 
@@ -445,20 +450,17 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         return () => window.removeEventListener("mousemove", onMove);
     }, []);
 
-    // ── Explode ────────────────────────────────────────────────────────────────
-    const explodeModel = useCallback(async (scaleOverride?: number) => {
-        if (!viewer.current) return;
-        const scale = typeof scaleOverride === "number" ? scaleOverride : explodeScale;
-        if (scale <= 0) return;
+    // ── Explode (BIM360-style radial, live slider) ────────────────────────────
+    const prepareExplodeData = useCallback(async () => {
+        if (explodePreparedRef.current || explodePreparingRef.current || !viewer.current) return;
+        explodePreparingRef.current = true;
+
         const manager = viewer.current.IFC.loader.ifcManager;
         const scene = viewer.current.context.getScene();
         const meshes = viewer.current.context.items.pickableIfcModels;
-        if (meshes.length === 0) return;
+        if (!meshes.length) { explodePreparingRef.current = false; return; }
 
         removedMeshesRef.current = [];
-        explodedSubsetsRef.current = [];
-
-        // Collect element IDs from all meshes
         const targets: { modelID: number; expressID: number }[] = [];
         for (const mesh of meshes) {
             const idAttr = mesh.geometry.getAttribute("expressID");
@@ -476,43 +478,38 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
             }
         }
 
-        // Create subsets for each element
         const subsets: THREE.Object3D[] = [];
         for (const { modelID, expressID } of targets) {
             try {
-                const subset = await manager.createSubset({
+                const s = await manager.createSubset({
                     modelID, ids: [expressID], scene,
-                    removePrevious: false,
-                    customID: `explode-${modelID}-${expressID}`,
+                    removePrevious: false, customID: `explode-${modelID}-${expressID}`,
                 });
-                if (!subset) continue;
-                subset.name = `explode-${modelID}-${expressID}`;
-                subset.visible = true;
-                subsets.push(subset);
+                if (!s) continue;
+                s.name = `explode-${modelID}-${expressID}`;
+                s.visible = true;
+                subsets.push(s);
             } catch { /* ignore */ }
         }
 
-        // Compute model bounding box center from all subset geometries
+        // Compute model bounding sphere from all subsets
         const modelBox = new THREE.Box3();
         for (const s of subsets) {
-            try {
-                const box = new THREE.Box3().setFromObject(s);
-                if (!box.isEmpty()) modelBox.union(box);
-            } catch { /* ignore */ }
+            try { const b = new THREE.Box3().setFromObject(s); if (!b.isEmpty()) modelBox.union(b); } catch { /* ignore */ }
         }
         const modelCenter = new THREE.Vector3();
         if (!modelBox.isEmpty()) modelBox.getCenter(modelCenter);
+        const modelRadius = modelBox.isEmpty() ? 10 : modelBox.min.distanceTo(modelBox.max) * 0.5;
+        const baseOffset = modelRadius * 0.5; // minimum radial push for all elements
 
-        // Animate each subset outward from its natural centroid
-        subsets.forEach((subset, i) => {
+        const data: ExplodeData[] = subsets.map((subset, i) => {
             try {
                 const box = new THREE.Box3().setFromObject(subset);
-                const center = new THREE.Vector3();
-                if (!box.isEmpty()) box.getCenter(center);
-
-                let dir = center.clone().sub(modelCenter);
-                if (dir.lengthSq() < 0.0001) {
-                    // Fallback: fibonacci sphere for elements at model center
+                const centroid = new THREE.Vector3();
+                if (!box.isEmpty()) box.getCenter(centroid);
+                let dir = centroid.clone().sub(modelCenter);
+                if (dir.lengthSq() < 0.001) {
+                    // Fibonacci sphere fallback for elements at exact center
                     const phi = Math.PI * (3 - Math.sqrt(5));
                     const y = 1 - (i / Math.max(subsets.length - 1, 1)) * 2;
                     const r = Math.sqrt(Math.max(0, 1 - y * y));
@@ -520,46 +517,66 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                 } else {
                     dir.normalize();
                 }
-
-                const dist = Math.max(1, box.isEmpty() ? 1 : center.distanceTo(modelCenter));
-                const offset = dir.multiplyScalar(scale * (1 + dist * 0.3));
-
-                gsap.to(subset.position, {
-                    x: offset.x, y: offset.y, z: offset.z,
-                    duration: 0.9,
-                    ease: "power2.out",
-                    delay: i * 0.004,
-                });
-            } catch { /* ignore */ }
+                const dist = box.isEmpty() ? 0 : centroid.distanceTo(modelCenter);
+                return { subset, dir, baseDist: baseOffset + dist };
+            } catch {
+                return { subset, dir: new THREE.Vector3(0, 1, 0), baseDist: baseOffset };
+            }
         });
 
+        explodeDataRef.current = data;
         explodedSubsetsRef.current = subsets;
-    }, [explodeScale]);
+        explodePreparedRef.current = true;
+        explodePreparingRef.current = false;
+    }, []);
 
-    const resetExplodeModel = useCallback(async () => {
+    const applyExplodePositions = useCallback((value: number) => {
+        if (!explodePreparedRef.current) return;
+        explodeDataRef.current.forEach(({ subset, dir, baseDist }) => {
+            const disp = dir.clone().multiplyScalar(value * baseDist);
+            subset.position.set(disp.x, disp.y, disp.z);
+        });
+    }, []);
+
+    const handleExplodeSlider = useCallback(async (value: number) => {
+        setExplodeValue(value);
+        pendingExplodeRef.current = value;
+
+        if (value > 0) {
+            if (!explodePreparedRef.current && !explodePreparingRef.current) {
+                await prepareExplodeData();
+                applyExplodePositions(pendingExplodeRef.current);
+            } else if (explodePreparedRef.current) {
+                applyExplodePositions(value);
+            }
+        } else {
+            // Collapse: animate to 0 then cleanup
+            if (!explodePreparedRef.current) return;
+            explodeDataRef.current.forEach(({ subset }) => {
+                gsap.to(subset.position, { x: 0, y: 0, z: 0, duration: 0.5, ease: "power2.inOut" });
+            });
+            setTimeout(() => {
+                const scene = viewer.current?.context.getScene();
+                explodeDataRef.current.forEach(({ subset }) => { try { scene?.remove(subset); } catch { /* ignore */ } });
+                removedMeshesRef.current.forEach(({ mesh, parent }) => { try { parent.add(mesh); mesh.visible = true; } catch { /* ignore */ } });
+                explodeDataRef.current = [];
+                explodedSubsetsRef.current = [];
+                removedMeshesRef.current = [];
+                explodePreparedRef.current = false;
+            }, 600);
+        }
+    }, [prepareExplodeData, applyExplodePositions]);
+
+    const resetExplodeModel = useCallback(() => {
         if (!viewer.current) return;
         const scene = viewer.current.context.getScene();
-        removedMeshesRef.current.forEach(({ mesh, parent }) => {
-            try { parent.add(mesh); mesh.visible = true; } catch { /* ignore */ }
-        });
+        explodeDataRef.current.forEach(({ subset }) => { try { scene.remove(subset); } catch { /* ignore */ } });
+        removedMeshesRef.current.forEach(({ mesh, parent }) => { try { parent.add(mesh); mesh.visible = true; } catch { /* ignore */ } });
+        explodeDataRef.current = [];
+        explodedSubsetsRef.current = [];
         removedMeshesRef.current = [];
-        const subsets = explodedSubsetsRef.current.length > 0
-            ? explodedSubsetsRef.current
-            : scene.children.filter((c: THREE.Object3D) => c?.name?.startsWith("explode-"));
-        subsets.forEach((s, i) => {
-            try {
-                gsap.to(s.position, {
-                    x: 0, y: 0, z: 0,
-                    duration: 0.7,
-                    ease: "power2.inOut",
-                    delay: i * 0.003,
-                });
-            } catch { /* ignore */ }
-        });
-        setTimeout(() => {
-            subsets.forEach(s => { try { scene.remove(s); } catch { /* ignore */ } });
-            explodedSubsetsRef.current = [];
-        }, 900);
+        explodePreparedRef.current = false;
+        setExplodeValue(0);
     }, []);
 
     // ── Tree filter ────────────────────────────────────────────────────────────
@@ -661,151 +678,186 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         );
     }
 
+    // ── Toolbar button helper ──────────────────────────────────────────────────
+    const TBtn = ({ icon, label, active, onClick, danger }: {
+        icon: React.ReactNode; label: string; active?: boolean;
+        onClick: () => void; danger?: boolean;
+    }) => (
+        <button title={label} onClick={onClick} style={{
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+            padding: "6px 10px", minWidth: 48,
+            background: active ? (danger ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)") : "transparent",
+            border: active ? `1px solid ${danger ? "rgba(239,68,68,0.4)" : "rgba(59,130,246,0.35)"}` : "1px solid transparent",
+            borderRadius: 8, cursor: "pointer",
+            color: active ? (danger ? "#f87171" : "#60a5fa") : "#94a3b8",
+            fontSize: 10, fontWeight: 500, letterSpacing: "0.02em",
+            transition: "all 0.15s", lineHeight: 1,
+        }}
+        onMouseEnter={e => { if (!active) { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#e2e8f0"; } }}
+        onMouseLeave={e => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#94a3b8"; } }}>
+            {icon}
+            <span>{label}</span>
+        </button>
+    );
+
     return (
         <>
             {isAuthenticated && (
                 <>
-                    {/* Loading progress */}
+                    {/* ── Loading ── */}
                     {loadProgress !== null && (
-                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 60, background: "#1a1d24ee", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 16 }}>
-                            <div style={{ color: "#e2e8f0", fontSize: 16, fontWeight: 500 }}>Загрузка модели...</div>
-                            <div style={{ width: 320, background: "#374151", borderRadius: 8, height: 8, overflow: "hidden" }}>
-                                <div style={{ height: "100%", background: "#3b82f6", width: `${loadProgress}%`, transition: "width 0.2s" }} />
+                        <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(10,12,18,0.9)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+                            <div style={{ width: 48, height: 48, border: "3px solid #1e2433", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                            <div style={{ color: "#e2e8f0", fontSize: 15, fontWeight: 500 }}>Загрузка модели {loadProgress}%</div>
+                            <div style={{ width: 280, background: "#1e2433", borderRadius: 6, height: 4, overflow: "hidden" }}>
+                                <div style={{ height: "100%", background: "linear-gradient(90deg,#3b82f6,#8b5cf6)", width: `${loadProgress}%`, transition: "width 0.3s" }} />
                             </div>
-                            <div style={{ color: "#94a3b8", fontSize: 14 }}>{loadProgress}%</div>
                         </div>
                     )}
 
-                    {/* Annotation canvas overlay — portal into body to bypass any stacking context */}
+                    {/* ── Annotation canvas (portal) ── */}
                     {drawMode && createPortal(
-                        <div style={{ position: "fixed", inset: 0, top: 42, zIndex: 9999, pointerEvents: "all" }}>
-                            <AnnotationCanvas
-                                active={true}
-                                onSave={onSketchSaved}
-                                onCancel={() => setDrawMode(false)}
-                            />
+                        <div style={{ position: "fixed", inset: 0, top: 50, zIndex: 9999, pointerEvents: "all" }}>
+                            <AnnotationCanvas active={true} onSave={onSketchSaved} onCancel={() => setDrawMode(false)} />
                         </div>,
                         document.body
                     )}
 
-                    {/* Sketch overlay when viewing a comment */}
+                    {/* ── Sketch overlay ── */}
                     {sketchOverlay && (
-                        <div style={{ position: "absolute", inset: 0, top: 42, zIndex: 40, pointerEvents: "none" }}>
-                            <div dangerouslySetInnerHTML={{ __html: sketchOverlay.svg }} style={{ width: "100%", height: "100%", opacity: 0.7 }} />
-                            <button
-                                onClick={() => setSketchOverlay(null)}
-                                style={{ position: "absolute", top: 12, right: 12, pointerEvents: "all", background: "#1a1d24cc", color: "#e2e8f0", border: "1px solid #374151", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}
-                            >
-                                Скрыть эскиз
-                            </button>
+                        <div style={{ position: "absolute", inset: 0, top: 50, zIndex: 40, pointerEvents: "none" }}>
+                            <div dangerouslySetInnerHTML={{ __html: sketchOverlay.svg }} style={{ width: "100%", height: "100%", opacity: 0.65 }} />
+                            <button onClick={() => setSketchOverlay(null)} style={{
+                                position: "absolute", top: 12, right: isModalOpen ? 352 : 12, pointerEvents: "all",
+                                background: "rgba(26,29,36,0.9)", backdropFilter: "blur(8px)",
+                                color: "#e2e8f0", border: "1px solid #374151", borderRadius: 7,
+                                padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500,
+                            }}>Скрыть эскиз</button>
                         </div>
                     )}
 
-                    {/* Presence indicator */}
+                    {/* ── Presence avatars (top-right) ── */}
                     {presenceUsers.length > 0 && (
-                        <div style={{ position: "absolute", top: 54, right: 16, zIndex: 20, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 2 }}>Сейчас смотрят:</span>
-                            {presenceUsers.slice(0, 5).map((u) => {
-                                const initials = [u.userName?.[0], u.userSurname?.[0]].filter(Boolean).join("").toUpperCase() || "?";
+                        <div style={{ position: "fixed", top: 58, right: isModalOpen ? 352 : 16, zIndex: 20, display: "flex", alignItems: "center", gap: 4, transition: "right 0.2s" }}>
+                            {presenceUsers.slice(0, 6).map((u) => {
+                                const ini = [u.userName?.[0], u.userSurname?.[0]].filter(Boolean).join("").toUpperCase() || "?";
                                 const isMe = u.userId === currentUserId;
                                 return (
-                                    <div key={u.userId} title={`${u.userName} ${u.userSurname}`.trim() || `User ${u.userId}`}
-                                        style={{
-                                            width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                                            fontSize: 11, fontWeight: 600, color: "#fff", cursor: "default", flexShrink: 0,
-                                            background: isMe ? "linear-gradient(135deg,#3b82f6,#8b5cf6)" : "linear-gradient(135deg,#10b981,#059669)",
-                                            border: isMe ? "2px solid #3b82f6" : "2px solid #10b981",
-                                            boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
-                                        }}>
-                                        {initials}
-                                    </div>
+                                    <div key={u.userId} title={`${u.userName} ${u.userSurname}`.trim() || `User ${u.userId}`} style={{
+                                        width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0,
+                                        background: isMe ? "linear-gradient(135deg,#3b82f6,#8b5cf6)" : "linear-gradient(135deg,#10b981,#059669)",
+                                        border: isMe ? "2px solid rgba(59,130,246,0.6)" : "2px solid rgba(16,185,129,0.4)",
+                                        boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                                    }}>{ini}</div>
                                 );
                             })}
-                            {presenceUsers.length > 5 && (
-                                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#374151", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#94a3b8", border: "2px solid #4b5563" }}>
-                                    +{presenceUsers.length - 5}
+                            {presenceUsers.length > 6 && (
+                                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#252a33", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#64748b", border: "2px solid #374151" }}>
+                                    +{presenceUsers.length - 6}
                                 </div>
                             )}
                         </div>
                     )}
 
-                    {/* Bottom toolbar */}
-                    <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 15, display: "flex", gap: 12, backgroundColor: "#1F252E", padding: "10px 20px", borderRadius: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.3)", border: "1px solid #ccc" }}>
-                        <button title={isTreeCollapsed ? "Показать структуру" : "Скрыть структуру"}
-                            onClick={() => { clearSelectionTree(); setIsTreeCollapsed(p => !p); }}
-                            style={{ background: isTreeCollapsed ? "#2C333A" : "#374151", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}>
-                            Структура
-                        </button>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 12, color: "#94a3b8" }}>Разлёт:</span>
-                            <input type="range" min="0.2" max="4" step="0.2" value={explodeScale}
-                                onChange={e => setExplodeScale(parseFloat(e.target.value))}
-                                style={{ width: 80, accentColor: "#60a5fa" }} />
-                            <span style={{ fontSize: 11, color: "#64748b", minWidth: 28 }}>{explodeScale.toFixed(1)}</span>
+                    {/* ── Bottom toolbar ── */}
+                    <div style={{
+                        position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
+                        zIndex: 15, display: "flex", alignItems: "center", gap: 2,
+                        background: "rgba(20,23,30,0.92)", backdropFilter: "blur(16px)",
+                        padding: "5px 8px", borderRadius: 14,
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)",
+                        border: "1px solid rgba(255,255,255,0.07)",
+                    }}>
+                        <TBtn active={!isTreeCollapsed} onClick={() => { clearSelectionTree(); setIsTreeCollapsed(p => !p); }} label="Структура"
+                            icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>} />
+
+                        <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", margin: "0 4px" }} />
+
+                        {/* Explode slider + label */}
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "4px 10px" }}>
+                            <span style={{ fontSize: 9, color: "#64748b", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                                Разлёт {explodeValue > 0 ? `${Math.round(explodeValue * 100)}%` : "выкл"}
+                            </span>
+                            <input type="range" min={0} max={1} step={0.02} value={explodeValue}
+                                onChange={e => void handleExplodeSlider(parseFloat(e.target.value))}
+                                style={{ width: 90, accentColor: "#60a5fa", cursor: "pointer" }} />
                         </div>
-                        <button title={exploded ? "Собрать модель" : "Разобрать модель"}
-                            onClick={() => void (async () => { if (!viewer.current) return; if (exploded) { await resetExplodeModel(); setExploded(false); } else { await explodeModel(explodeScale); setExploded(true); } })()}
-                            style={{ background: "#2C333A", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                            </svg>
-                        </button>
-                        <button title={commentsPanelOpen ? "Скрыть все комментарии" : "Все комментарии"}
+
+                        <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", margin: "0 4px" }} />
+
+                        <TBtn active={commentsPanelOpen}
                             onClick={() => setCommentsPanelOpen(p => { const n = !p; if (n) setIsModalOpen(false); return n; })}
-                            style={{ background: commentsPanelOpen ? "#374151" : "#2C333A", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}>
-                            Комментарии
-                        </button>
-                        <button title="Сбросить вид модели"
-                            onClick={async () => { try { await clearSelection(); await resetExplodeModel(); setExploded(false); } catch { /* ignore */ } }}
-                            style={{ background: "#2C333A", color: "white", padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                        </button>
+                            label="Комментарии"
+                            icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>} />
+
+                        <TBtn active={drawMode} onClick={enterDrawMode} label="Рисовать"
+                            icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>} />
+
+                        <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.08)", margin: "0 4px" }} />
+
+                        <TBtn onClick={() => { void clearSelection(); resetExplodeModel(); }} label="Сбросить"
+                            icon={<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>} />
                     </div>
 
-                    {/* Model tree */}
+                    {/* ── Model tree panel ── */}
                     {!isTreeCollapsed && (
-                        <div style={{ position: "absolute", left: 0, top: 42, zIndex: 20, background: "#1F252E", maxHeight: "90vh", overflow: "auto", minWidth: 240, borderRadius: 6, border: "1px solid #ccc", color: "#fff" }}>
-                            <div style={{ padding: 10 }}>
-                                <input type="text" placeholder="Поиск по структуре..." value={treeSearch} onChange={e => setTreeSearch(e.target.value)}
-                                    style={{ width: "100%", marginBottom: 8, padding: "6px 10px", background: "#252a33", border: "1px solid #374151", borderRadius: 6, color: "#f1f5f9", fontSize: 13 }} />
-                                <ul style={{ paddingLeft: 0, marginTop: 0 }}>
+                        <div style={{
+                            position: "fixed", left: 0, top: 50, bottom: 0, width: 260, zIndex: 20,
+                            background: "rgba(18,21,28,0.96)", backdropFilter: "blur(12px)",
+                            borderRight: "1px solid rgba(255,255,255,0.07)",
+                            display: "flex", flexDirection: "column",
+                            boxShadow: "4px 0 24px rgba(0,0,0,0.4)",
+                        }}>
+                            <div style={{ padding: "12px 14px 8px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", letterSpacing: "0.06em", textTransform: "uppercase" }}>Структура</span>
+                                <button onClick={() => setIsTreeCollapsed(true)} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", padding: 2, borderRadius: 4, display: "flex" }}>
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                            <div style={{ padding: "8px 10px" }}>
+                                <div style={{ position: "relative" }}>
+                                    <svg style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" fill="none" stroke="#475569" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    <input type="text" placeholder="Поиск..." value={treeSearch} onChange={e => setTreeSearch(e.target.value)} style={{
+                                        width: "100%", padding: "6px 8px 6px 26px", background: "rgba(255,255,255,0.04)",
+                                        border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7,
+                                        color: "#e2e8f0", fontSize: 12, boxSizing: "border-box", outline: "none",
+                                    }} />
+                                </div>
+                            </div>
+                            <div style={{ flex: 1, overflow: "auto", padding: "0 6px 12px" }}>
+                                <ul style={{ paddingLeft: 0, margin: 0 }}>
                                     {modelStructure && (() => {
                                         const filtered = filterTreeBySearch(modelStructure, treeSearch);
                                         return filtered
                                             ? <TreeNodeComponent node={filtered} />
-                                            : <li style={{ color: "#94a3b8", fontSize: 13 }}>Ничего не найдено</li>;
+                                            : <li style={{ color: "#475569", fontSize: 12, padding: "8px 8px" }}>Ничего не найдено</li>;
                                     })()}
                                 </ul>
                             </div>
                         </div>
                     )}
 
-                    {/* Remote cursors overlay */}
+                    {/* ── Remote cursors ── */}
                     {remoteCursors.length > 0 && (
-                        <div style={{ position: "absolute", inset: 0, top: 42, pointerEvents: "none", zIndex: 35, overflow: "hidden" }}>
+                        <div style={{ position: "absolute", inset: 0, top: 50, pointerEvents: "none", zIndex: 35, overflow: "hidden" }}>
                             {remoteCursors.map(cursor => (
                                 <div key={cursor.userId} style={{
-                                    position: "absolute",
-                                    left: `${cursor.nx * 100}%`,
-                                    top: `${cursor.ny * 100}%`,
-                                    pointerEvents: "none",
-                                    transform: "translate(2px, 2px)",
+                                    position: "absolute", left: `${cursor.nx * 100}%`, top: `${cursor.ny * 100}%`,
+                                    pointerEvents: "none", transform: "translate(2px,2px)",
                                     transition: "left 0.08s linear, top 0.08s linear",
                                 }}>
-                                    <svg width="14" height="18" viewBox="0 0 14 18" fill="none" style={{ display: "block" }}>
-                                        <path d="M1 1l12 8-6.5 1L4 17z" fill={cursor.color} stroke="#fff" strokeWidth="1.2" strokeLinejoin="round" />
+                                    <svg width="13" height="17" viewBox="0 0 14 18" fill="none">
+                                        <path d="M1 1l12 8-6.5 1L4 17z" fill={cursor.color} stroke="#000" strokeWidth="1" strokeLinejoin="round" />
                                     </svg>
                                     <span style={{
-                                        display: "inline-block", marginTop: 2, marginLeft: 2,
-                                        background: cursor.color, color: "#fff",
-                                        fontSize: 10, fontWeight: 600,
-                                        padding: "1px 5px", borderRadius: 3,
-                                        whiteSpace: "nowrap", boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                                    }}>
-                                        {cursor.name}
-                                    </span>
+                                        display: "inline-block", marginTop: 1, marginLeft: 2,
+                                        background: cursor.color, color: "#fff", fontSize: 9, fontWeight: 700,
+                                        padding: "1px 5px", borderRadius: 3, whiteSpace: "nowrap",
+                                        boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
+                                    }}>{cursor.name}</span>
                                 </div>
                             ))}
                         </div>
@@ -813,111 +865,137 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
 
                     <div ref={containerRef} className="viewer-container" onClick={handleClick} />
 
-                    {/* Element properties + comment panel */}
+                    {/* ── Properties + comments panel ── */}
                     {isModalOpen && selectedElement && (
-                        <div style={{ position: "fixed", right: 0, top: 42, bottom: 0, width: 340, backgroundColor: "#1a1d24", overflow: "auto", boxShadow: "-4px 0 24px rgba(0,0,0,0.4)", borderLeft: "1px solid #2d3748", zIndex: 25 }}>
-                            <div style={{ borderBottom: "1px solid #2d3748", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0, color: "#e2e8f0" }}>Свойства элемента</h3>
-                                <button onClick={clearSelection} style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 20 }}>&times;</button>
+                        <div style={{
+                            position: "fixed", right: 0, top: 50, bottom: 0, width: 340,
+                            background: "rgba(16,19,26,0.97)", backdropFilter: "blur(16px)",
+                            borderLeft: "1px solid rgba(255,255,255,0.07)",
+                            boxShadow: "-8px 0 32px rgba(0,0,0,0.5)",
+                            zIndex: 25, display: "flex", flexDirection: "column", overflow: "hidden",
+                        }}>
+                            {/* Panel header */}
+                            <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>Свойства</span>
+                                <button onClick={clearSelection} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", padding: 4, borderRadius: 6, display: "flex" }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#94a3b8"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "none"; e.currentTarget.style.color = "#475569"; }}>
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </div>
-                            <div style={{ padding: 12 }}>
-                                <div style={{ marginBottom: 16 }}>
-                                    <label style={{ fontSize: 11, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Название</label>
+
+                            <div style={{ flex: 1, overflow: "auto", padding: "14px 16px" }}>
+                                {/* Element name */}
+                                <div style={{ marginBottom: 14 }}>
+                                    <label style={{ fontSize: 10, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Название</label>
                                     <input type="text"
                                         value={customNames[String(selectedElement.id)] ?? getElementDisplayName(selectedElement, customNames)}
                                         onChange={e => { const v = e.target.value; setCustomNames(prev => v ? { ...prev, [String(selectedElement.id)]: v } : (() => { const n = { ...prev }; delete n[String(selectedElement.id)]; return n; })()); }}
                                         onBlur={e => saveCustomName(selectedElement.id, e.target.value.trim())}
-                                        style={{ width: "100%", marginTop: 4, padding: "8px 10px", background: "#252a33", border: "1px solid #374151", borderRadius: 6, color: "#f1f5f9", fontSize: 14, boxSizing: "border-box" }} />
+                                        style={{ width: "100%", marginTop: 5, padding: "8px 10px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, color: "#f1f5f9", fontSize: 13, boxSizing: "border-box", outline: "none" }} />
                                 </div>
-                                <div style={{ marginBottom: 16, fontSize: 12, color: "#94a3b8" }}>
-                                    <span>ID: {selectedElement.id}</span>
+
+                                {/* Meta */}
+                                <div style={{ marginBottom: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.04)", padding: "3px 8px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.06)" }}>
+                                        ID {selectedElement.id}
+                                    </span>
                                     {(selectedElement.ObjectType as { value?: string })?.value && (
-                                        <span style={{ display: "block", marginTop: 4 }}>Тип: {String((selectedElement.ObjectType as { value: string }).value)}</span>
+                                        <span style={{ fontSize: 11, color: "#475569", background: "rgba(255,255,255,0.04)", padding: "3px 8px", borderRadius: 5, border: "1px solid rgba(255,255,255,0.06)" }}>
+                                            {String((selectedElement.ObjectType as { value: string }).value)}
+                                        </span>
                                     )}
                                 </div>
-                                <hr style={{ border: "none", borderTop: "1px solid #2d3748", margin: "12px 0" }} />
 
-                                <CommentWithSketch
-                                    commentText={newComment}
-                                    onCommentTextChange={setNewComment}
-                                    sketchSvg={sketchSvg}
-                                    onDrawRequest={enterDrawMode}
-                                    onDeleteSketch={() => setSketchSvg(null)}
-                                    onSave={saveComment}
-                                />
+                                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 14, marginBottom: 14 }}>
+                                    <CommentWithSketch
+                                        commentText={newComment}
+                                        onCommentTextChange={setNewComment}
+                                        sketchSvg={sketchSvg}
+                                        onDrawRequest={enterDrawMode}
+                                        onDeleteSketch={() => setSketchSvg(null)}
+                                        onSave={saveComment}
+                                    />
+                                </div>
 
-                                <div style={{ marginTop: 16 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                                        <h4 style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
+                                {/* Comment list */}
+                                <div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                                        <span style={{ fontSize: 10, color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>
                                             Комментарии ({(comments[String(selectedElement.id)] ?? []).length})
-                                        </h4>
+                                        </span>
                                         <button onClick={() => { setIsModalOpen(false); setCommentsPanelOpen(true); }}
-                                            style={{ fontSize: 11, background: "transparent", border: "1px solid #64748b", color: "#94a3b8", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}>
-                                            Все комментарии
+                                            style={{ fontSize: 10, background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "#64748b", padding: "2px 8px", borderRadius: 5, cursor: "pointer" }}>
+                                            Все
                                         </button>
                                     </div>
-                                    <ul style={{ paddingLeft: 16, margin: 0 }}>
-                                        {(() => {
-                                            const elComments = comments[String(selectedElement.id)] ?? [];
-                                            if (elComments.length === 0) return <li style={{ color: "#64748b" }}>Нет комментариев</li>;
-                                            return elComments.map((comment, i) => (
-                                                <li key={i} style={{ marginBottom: 10 }}>
-                                                    <span style={{ cursor: "pointer", color: "#60a5fa", textDecoration: "underline" }}
-                                                        onClick={() => void handleCommentClick(comment)}>
-                                                        {getElementDisplayName({ id: comment.elementId, Name: { value: comment.elementName } } as IfcElementProperties, customNames)}
-                                                    </span>
-                                                    : <span style={{ color: "#cbd5e1" }}>{comment.text}</span>
-                                                    {comment.sketchSvg && (
-                                                        <div
-                                                            dangerouslySetInnerHTML={{ __html: comment.sketchSvg }}
-                                                            onClick={() => setSketchOverlay({ svg: comment.sketchSvg!, label: comment.elementName })}
-                                                            style={{ marginTop: 4, maxHeight: 60, overflow: "hidden", background: "#0f1117", borderRadius: 4, cursor: "pointer", border: "1px solid #374151", lineHeight: 0 }}
-                                                        />
-                                                    )}
-                                                    {comment.cameraPositionJson && (
-                                                        <button onClick={() => { try { flyToCamera(JSON.parse(comment.cameraPositionJson!)); } catch { /* ignore */ } }}
-                                                            style={{ fontSize: 10, background: "transparent", border: "1px solid #374151", color: "#60a5fa", padding: "1px 6px", borderRadius: 3, cursor: "pointer", marginTop: 2 }}>
-                                                            📷 Перейти к позиции
-                                                        </button>
-                                                    )}
-                                                    {renderCommentMeta(comment)}
-                                                </li>
-                                            ));
-                                        })()}
-                                    </ul>
+                                    {(() => {
+                                        const elComments = comments[String(selectedElement.id)] ?? [];
+                                        if (!elComments.length) return <p style={{ fontSize: 12, color: "#374151", margin: 0 }}>Нет комментариев</p>;
+                                        return elComments.map((comment, i) => (
+                                            <div key={i} style={{ marginBottom: 10, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+                                                <div style={{ cursor: "pointer", color: "#60a5fa", fontSize: 11, fontWeight: 500, marginBottom: 4 }}
+                                                    onClick={() => void handleCommentClick(comment)}>
+                                                    {getElementDisplayName({ id: comment.elementId, Name: { value: comment.elementName } } as IfcElementProperties, customNames)}
+                                                </div>
+                                                <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.5 }}>{comment.text}</div>
+                                                {comment.sketchSvg && (
+                                                    <div dangerouslySetInnerHTML={{ __html: comment.sketchSvg }}
+                                                        onClick={() => setSketchOverlay({ svg: comment.sketchSvg!, label: comment.elementName })}
+                                                        style={{ marginTop: 6, maxHeight: 56, overflow: "hidden", background: "#0a0c12", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
+                                                )}
+                                                {comment.cameraPositionJson && (
+                                                    <button onClick={() => { try { flyToCamera(JSON.parse(comment.cameraPositionJson!)); } catch { /* ignore */ } }}
+                                                        style={{ marginTop: 6, fontSize: 10, background: "transparent", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", padding: "2px 8px", borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                                                        <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.869v6.262a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                                        Перейти
+                                                    </button>
+                                                )}
+                                                {renderCommentMeta(comment)}
+                                            </div>
+                                        ));
+                                    })()}
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* All comments panel */}
+                    {/* ── All comments panel ── */}
                     {commentsPanelOpen && (
-                        <div style={{ position: "fixed", left: 20, top: 80, bottom: 100, width: 300, background: "#1a1d24", border: "1px solid #2d3748", borderRadius: 8, zIndex: 30, overflow: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
-                            <div style={{ padding: 12, borderBottom: "1px solid #2d3748", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <h4 style={{ margin: 0, color: "#e2e8f0", fontSize: 14 }}>Все комментарии</h4>
-                                <button onClick={() => setCommentsPanelOpen(false)} style={{ background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 18 }}>&times;</button>
+                        <div style={{
+                            position: "fixed", left: !isTreeCollapsed ? 268 : 12, top: 58, bottom: 80, width: 300,
+                            background: "rgba(16,19,26,0.97)", backdropFilter: "blur(16px)",
+                            border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12,
+                            zIndex: 30, display: "flex", flexDirection: "column",
+                            boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                            transition: "left 0.2s",
+                        }}>
+                            <div style={{ padding: "12px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>Комментарии</span>
+                                <button onClick={() => setCommentsPanelOpen(false)} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", padding: 4, borderRadius: 6, display: "flex" }}>
+                                    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </div>
-                            <div style={{ padding: 12 }}>
+                            <div style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
                                 {(() => {
                                     const all = Object.entries(comments).flatMap(([, arr]) => arr);
                                     all.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-                                    if (all.length === 0) return <p style={{ color: "#64748b", fontSize: 13 }}>Нет комментариев</p>;
+                                    if (!all.length) return <p style={{ color: "#374151", fontSize: 13, margin: 0 }}>Нет комментариев</p>;
                                     return all.map((c, i) => (
-                                        <div key={i} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #2d3748" }}>
-                                            <div style={{ fontSize: 11, color: "#60a5fa", marginBottom: 4, cursor: "pointer", textDecoration: "underline" }}
-                                                onClick={() => void handleCommentClick(c)}>
+                                        <div key={i} style={{ marginBottom: 8, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
+                                            <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 500, marginBottom: 4, cursor: "pointer" }} onClick={() => void handleCommentClick(c)}>
                                                 {getElementDisplayName({ id: c.elementId, Name: { value: c.elementName } } as IfcElementProperties, customNames)}
                                             </div>
-                                            <div style={{ color: "#cbd5e1", fontSize: 13 }}>{c.text}</div>
+                                            <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.5 }}>{c.text}</div>
                                             {c.sketchSvg && (
                                                 <div dangerouslySetInnerHTML={{ __html: c.sketchSvg }}
                                                     onClick={() => setSketchOverlay({ svg: c.sketchSvg!, label: c.elementName })}
-                                                    style={{ marginTop: 4, maxHeight: 50, overflow: "hidden", background: "#0f1117", borderRadius: 4, cursor: "pointer", border: "1px solid #374151", lineHeight: 0 }} />
+                                                    style={{ marginTop: 6, maxHeight: 44, overflow: "hidden", background: "#0a0c12", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
                                             )}
                                             {c.cameraPositionJson && (
                                                 <button onClick={() => { try { flyToCamera(JSON.parse(c.cameraPositionJson!)); } catch { /* ignore */ } }}
-                                                    style={{ fontSize: 10, background: "transparent", border: "1px solid #374151", color: "#60a5fa", padding: "1px 6px", borderRadius: 3, cursor: "pointer", marginTop: 4 }}>
-                                                    📷 Перейти к позиции
+                                                    style={{ marginTop: 5, fontSize: 10, background: "transparent", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}>
+                                                    Перейти к виду
                                                 </button>
                                             )}
                                             {renderCommentMeta(c)}
