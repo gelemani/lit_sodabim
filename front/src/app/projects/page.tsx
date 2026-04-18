@@ -146,7 +146,10 @@ const ProjectsPageContent = ({ onSelectProject = () => {} }: ProjectsPageProps) 
   };
 
   const handleEditProject = (proj: Project) => {
-    setNewProject({ ...proj, projectAccessCreate: proj.projectAccessCreate ?? [], projectAccesses: proj.projectAccesses ?? [] });
+    const accessCreate = (proj.projectAccesses ?? [])
+      .filter(a => a.userId !== proj.creatorId)
+      .map(a => ({ userId: a.userId, accessLevel: a.accessLevel, grantedAt: a.grantedAt }));
+    setNewProject({ ...proj, projectAccessCreate: accessCreate, projectAccesses: proj.projectAccesses ?? [] });
     setEditingProjectId(proj.id);
     setShowProjectForm(true);
   };
@@ -156,12 +159,16 @@ const ProjectsPageContent = ({ onSelectProject = () => {} }: ProjectsPageProps) 
     if (!newProject.title.trim()) { setNotification({ message: "Название не может быть пустым", type: "error" }); return; }
     const now = new Date().toISOString();
     try {
+      const accesses = [...(newProject.projectAccessCreate ?? []).map(a => ({ userId: a.userId, accessLevel: a.accessLevel, grantedAt: now }))];
+      if (!accesses.some(a => a.userId === currentUserId)) {
+        accesses.push({ userId: currentUserId, accessLevel: "Admin", grantedAt: now });
+      }
       const response = await apiService.putUserProject(editingProjectId, {
         id: editingProjectId, creatorId: newProject.creatorId, title: newProject.title,
         createdAt: newProject.createdAt, lastModified: now,
-        accessLevel: newProject.accessLevel === "private" ? "viewer" : newProject.accessLevel,
-        projectFiles: Array.isArray(newProject.projectFiles) ? newProject.projectFiles : [],
-        projectAccesses: (newProject.projectAccessCreate ?? []).map(a => ({ userId: a.userId, accessLevel: a.accessLevel, grantedAt: now })),
+        accessLevel: newProject.accessLevel,
+        projectFiles: [],
+        projectAccesses: accesses,
       });
       if (!response.success) throw new Error(response.error);
       for (const file of selectedFiles) await apiService.PostProjectFile(editingProjectId, file, currentUserId);
@@ -200,7 +207,7 @@ const ProjectsPageContent = ({ onSelectProject = () => {} }: ProjectsPageProps) 
       {notification && (
         <Notification message={notification.message} type={notification.type} onClose={() => setNotification(null)} />
       )}
-      <Header centralString={companyName} backHref="/" />
+      <Header centralString={companyName} />
 
       <main style={{ paddingTop: 72, maxWidth: 1200, margin: "0 auto", padding: "72px 32px 48px" }}>
         {/* Page header */}

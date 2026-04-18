@@ -15,6 +15,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5080";
 interface CameraSnapshot { position: THREE.Vector3Like; target: THREE.Vector3Like }
 
 interface PresenceUser { userId: number; userName: string; userSurname: string }
+interface RemoteCursor { userId: number; name: string; nx: number; ny: number; color: string }
 
 interface Comment {
     id?: number;
@@ -113,6 +114,10 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
     const [explodeScale, setExplodeScale] = useState(1);
     const [userNameMap, setUserNameMap] = useState<Record<number, string>>({});
     const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
+    const [remoteCursors, setRemoteCursors] = useState<RemoteCursor[]>([]);
+
+    const groupKeyRef = useRef<string>("");
+    const lastCursorSendRef = useRef<number>(0);
 
     // Annotation / sketch state
     const [drawMode, setDrawMode] = useState(false);
@@ -131,6 +136,10 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         const projectId = sessionStorage.getItem("viewerProjectId") || "0";
         const fileId = sessionStorage.getItem("viewerFileId") || "0";
         const groupKey = `project-${projectId}-file-${fileId}`;
+        groupKeyRef.current = groupKey;
+
+        const cursorColors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899"];
+        const colorForUser = (uid: number) => cursorColors[uid % cursorColors.length];
 
         const connection = new signalR.HubConnectionBuilder()
             .withUrl(`${API_BASE}/hubs/comments`)
@@ -141,12 +150,25 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
             setPresenceUsers(users);
         });
 
+        connection.on("CursorUpdated", (positions: { userId: number; userName: string; userSurname: string; nx: number; ny: number }[]) => {
+            setRemoteCursors(positions
+                .filter(p => p.userId !== currentUserId)
+                .map(p => ({
+                    userId: p.userId,
+                    name: `${p.userName} ${p.userSurname}`.trim() || `User ${p.userId}`,
+                    nx: p.nx,
+                    ny: p.ny,
+                    color: colorForUser(p.userId),
+                }))
+            );
+        });
+
         connection.on("NewComment", (payload: {
             id: number; expressId: number; elementName: string;
             commentText: string; userId: number; createdAt: string;
             cameraPositionJson?: string; sketchSvg?: string;
         }) => {
-            if (payload.userId === currentUserId) return; // already added locally
+            if (payload.userId === currentUserId) return;
             const key = String(payload.expressId);
             setComments(prev => {
                 const updated = { ...prev };
@@ -167,11 +189,8 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
             });
         });
 
-        const storedUser = (() => {
-            try { return JSON.parse(localStorage.getItem("userInfo") || "{}"); } catch { return {}; }
-        })();
-        const uName = storedUser.userName || "";
-        const uSurname = storedUser.userSurname || "";
+        const uName = localStorage.getItem("userName") || "";
+        const uSurname = localStorage.getItem("userSurname") || "";
 
         connection.start()
             .then(() => connection.invoke("JoinProject", groupKey, currentUserId, uName, uSurname))
@@ -211,10 +230,9 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
             viewer.current.grid.setGrid();
             viewer.current.axes.setAxes();
             const controls = viewer.current.context.ifcCamera.controls;
-            controls.setBoundary(new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)));
             controls.azimuthAngle = 0;
-            controls.maxDistance = 100;
-            controls.minDistance = 1;
+            controls.maxDistance = 2000;
+            controls.minDistance = 0.1;
             controls.dollySpeed = 0.5;
             controls.setTarget(0, 0, 0);
             viewer.current.IFC.setWasmPath("../../../");
@@ -403,6 +421,29 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         setDrawMode(false);
     }, []);
 
+    // ── Cursor tracking (native listener — bypasses camera-controls stopPropagation) ──
+    const drawModeRef = useRef(drawMode);
+    useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
+
+    useEffect(() => {
+        const onMove = (e: MouseEvent) => {
+            if (!hubRef.current || !containerRef.current || drawModeRef.current) return;
+            const now = Date.now();
+            if (now - lastCursorSendRef.current < 50) return;
+            lastCursorSendRef.current = now;
+            const rect = containerRef.current.getBoundingClientRect();
+            if (
+                e.clientX < rect.left || e.clientX > rect.right ||
+                e.clientY < rect.top || e.clientY > rect.bottom
+            ) return;
+            const nx = (e.clientX - rect.left) / rect.width;
+            const ny = (e.clientY - rect.top) / rect.height;
+            hubRef.current.invoke("UpdateCursor", groupKeyRef.current, nx, ny).catch(() => {});
+        };
+        window.addEventListener("mousemove", onMove, { passive: true });
+        return () => window.removeEventListener("mousemove", onMove);
+    }, []);
+
     // ── Explode ────────────────────────────────────────────────────────────────
     const explodeModel = useCallback(async (scaleOverride?: number) => {
         if (!viewer.current) return;
@@ -413,46 +454,111 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
         const meshes = viewer.current.context.items.pickableIfcModels;
         if (meshes.length === 0) return;
 
-        const directions = [
-            new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
-            new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0),
-            new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
-        ];
         removedMeshesRef.current = [];
         explodedSubsetsRef.current = [];
+
+        // Collect element IDs from all meshes
         const targets: { modelID: number; expressID: number }[] = [];
         for (const mesh of meshes) {
             const idAttr = mesh.geometry.getAttribute("expressID");
             if (idAttr) {
                 const ids = new Set<number>();
-                for (let i = 0; i < idAttr.count; i++) { const v = idAttr.getX(i); if (!Number.isNaN(v)) ids.add(v); }
+                for (let i = 0; i < idAttr.count; i++) {
+                    const v = idAttr.getX(i);
+                    if (!Number.isNaN(v)) ids.add(v);
+                }
                 ids.forEach(id => targets.push({ modelID: mesh.modelID, expressID: id }));
             }
-            if (mesh.parent) { mesh.parent.remove(mesh); removedMeshesRef.current.push({ mesh, parent: mesh.parent }); }
+            if (mesh.parent) {
+                mesh.parent.remove(mesh);
+                removedMeshesRef.current.push({ mesh, parent: mesh.parent });
+            }
         }
-        for (let i = 0; i < targets.length; i++) {
-            const { modelID, expressID } = targets[i];
+
+        // Create subsets for each element
+        const subsets: THREE.Object3D[] = [];
+        for (const { modelID, expressID } of targets) {
             try {
-                const subset = await manager.createSubset({ modelID, ids: [expressID], scene, removePrevious: false, customID: `explode-${modelID}-${expressID}` });
+                const subset = await manager.createSubset({
+                    modelID, ids: [expressID], scene,
+                    removePrevious: false,
+                    customID: `explode-${modelID}-${expressID}`,
+                });
                 if (!subset) continue;
                 subset.name = `explode-${modelID}-${expressID}`;
                 subset.visible = true;
-                subset.position.add(directions[i % directions.length].clone().multiplyScalar(1.1 * scale));
-                explodedSubsetsRef.current.push(subset);
+                subsets.push(subset);
             } catch { /* ignore */ }
         }
+
+        // Compute model bounding box center from all subset geometries
+        const modelBox = new THREE.Box3();
+        for (const s of subsets) {
+            try {
+                const box = new THREE.Box3().setFromObject(s);
+                if (!box.isEmpty()) modelBox.union(box);
+            } catch { /* ignore */ }
+        }
+        const modelCenter = new THREE.Vector3();
+        if (!modelBox.isEmpty()) modelBox.getCenter(modelCenter);
+
+        // Animate each subset outward from its natural centroid
+        subsets.forEach((subset, i) => {
+            try {
+                const box = new THREE.Box3().setFromObject(subset);
+                const center = new THREE.Vector3();
+                if (!box.isEmpty()) box.getCenter(center);
+
+                let dir = center.clone().sub(modelCenter);
+                if (dir.lengthSq() < 0.0001) {
+                    // Fallback: fibonacci sphere for elements at model center
+                    const phi = Math.PI * (3 - Math.sqrt(5));
+                    const y = 1 - (i / Math.max(subsets.length - 1, 1)) * 2;
+                    const r = Math.sqrt(Math.max(0, 1 - y * y));
+                    dir = new THREE.Vector3(Math.cos(phi * i) * r, y, Math.sin(phi * i) * r);
+                } else {
+                    dir.normalize();
+                }
+
+                const dist = Math.max(1, box.isEmpty() ? 1 : center.distanceTo(modelCenter));
+                const offset = dir.multiplyScalar(scale * (1 + dist * 0.3));
+
+                gsap.to(subset.position, {
+                    x: offset.x, y: offset.y, z: offset.z,
+                    duration: 0.9,
+                    ease: "power2.out",
+                    delay: i * 0.004,
+                });
+            } catch { /* ignore */ }
+        });
+
+        explodedSubsetsRef.current = subsets;
     }, [explodeScale]);
 
     const resetExplodeModel = useCallback(async () => {
         if (!viewer.current) return;
         const scene = viewer.current.context.getScene();
-        removedMeshesRef.current.forEach(({ mesh, parent }) => { try { parent.add(mesh); mesh.visible = true; } catch { /* ignore */ } });
+        removedMeshesRef.current.forEach(({ mesh, parent }) => {
+            try { parent.add(mesh); mesh.visible = true; } catch { /* ignore */ }
+        });
         removedMeshesRef.current = [];
         const subsets = explodedSubsetsRef.current.length > 0
             ? explodedSubsetsRef.current
             : scene.children.filter((c: THREE.Object3D) => c?.name?.startsWith("explode-"));
-        subsets.forEach(s => { try { gsap.to(s.position, { x: 0, y: 0, z: 0, duration: 0.6 }); } catch { /* ignore */ } });
-        setTimeout(() => { subsets.forEach(s => { try { scene.remove(s); } catch { /* ignore */ } }); explodedSubsetsRef.current = []; }, 750);
+        subsets.forEach((s, i) => {
+            try {
+                gsap.to(s.position, {
+                    x: 0, y: 0, z: 0,
+                    duration: 0.7,
+                    ease: "power2.inOut",
+                    delay: i * 0.003,
+                });
+            } catch { /* ignore */ }
+        });
+        setTimeout(() => {
+            subsets.forEach(s => { try { scene.remove(s); } catch { /* ignore */ } });
+            explodedSubsetsRef.current = [];
+        }, 900);
     }, []);
 
     // ── Tree filter ────────────────────────────────────────────────────────────
@@ -570,15 +676,13 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                     )}
 
                     {/* Annotation canvas overlay */}
-                    {containerRef.current && (
-                        <div style={{ position: "absolute", inset: 0, top: 42, zIndex: drawMode ? 50 : -1, pointerEvents: drawMode ? "all" : "none" }}>
-                            <AnnotationCanvas
-                                active={drawMode}
-                                onSave={onSketchSaved}
-                                onCancel={() => setDrawMode(false)}
-                            />
-                        </div>
-                    )}
+                    <div style={{ position: "fixed", inset: 0, top: 42, zIndex: drawMode ? 200 : -1, pointerEvents: drawMode ? "all" : "none" }}>
+                        <AnnotationCanvas
+                            active={drawMode}
+                            onSave={onSketchSaved}
+                            onCancel={() => setDrawMode(false)}
+                        />
+                    </div>
 
                     {/* Sketch overlay when viewing a comment */}
                     {sketchOverlay && (
@@ -671,6 +775,35 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                     })()}
                                 </ul>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Remote cursors overlay */}
+                    {remoteCursors.length > 0 && (
+                        <div style={{ position: "absolute", inset: 0, top: 42, pointerEvents: "none", zIndex: 35, overflow: "hidden" }}>
+                            {remoteCursors.map(cursor => (
+                                <div key={cursor.userId} style={{
+                                    position: "absolute",
+                                    left: `${cursor.nx * 100}%`,
+                                    top: `${cursor.ny * 100}%`,
+                                    pointerEvents: "none",
+                                    transform: "translate(2px, 2px)",
+                                    transition: "left 0.08s linear, top 0.08s linear",
+                                }}>
+                                    <svg width="14" height="18" viewBox="0 0 14 18" fill="none" style={{ display: "block" }}>
+                                        <path d="M1 1l12 8-6.5 1L4 17z" fill={cursor.color} stroke="#fff" strokeWidth="1.2" strokeLinejoin="round" />
+                                    </svg>
+                                    <span style={{
+                                        display: "inline-block", marginTop: 2, marginLeft: 2,
+                                        background: cursor.color, color: "#fff",
+                                        fontSize: 10, fontWeight: 600,
+                                        padding: "1px 5px", borderRadius: 3,
+                                        whiteSpace: "nowrap", boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                                    }}>
+                                        {cursor.name}
+                                    </span>
+                                </div>
+                            ))}
                         </div>
                     )}
 

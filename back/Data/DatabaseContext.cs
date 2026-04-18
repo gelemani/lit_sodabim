@@ -8,6 +8,7 @@ namespace B.Data
         public DbSet<User> Users { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<ProjectFile> ProjectFiles { get; set; }
+        public DbSet<ProjectAccess> ProjectAccesses { get; set; }
         public DbSet<IfcComponentComment> IfcComponentComments { get; set; }
 
         public DatabaseContext(DbContextOptions<DatabaseContext> options) : base(options)
@@ -48,6 +49,18 @@ namespace B.Data
                       .WithMany(p => p.ProjectFiles)
                       .HasForeignKey(f => f.ProjectId)
                       .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            modelBuilder.Entity<ProjectAccess>(entity =>
+            {
+                entity.HasKey(a => a.Id);
+                entity.Property(a => a.AccessLevel).IsRequired().HasMaxLength(50);
+                entity.Property(a => a.GrantedAt).IsRequired();
+                entity.HasOne(a => a.Project)
+                      .WithMany(p => p.ProjectAccesses)
+                      .HasForeignKey(a => a.ProjectId)
+                      .OnDelete(DeleteBehavior.Cascade);
+                entity.HasIndex(a => new { a.ProjectId, a.UserId }).IsUnique();
             });
 
             modelBuilder.Entity<IfcComponentComment>(entity =>

@@ -16,19 +16,24 @@ namespace B.Repositories.Implementations
 
         public async Task<IEnumerable<Project>> GetAllAsync()
         {
-            return await _context.Projects.ToListAsync();
+            return await _context.Projects
+                .Include(p => p.ProjectAccesses)
+                .ToListAsync();
         }
 
         public async Task<IEnumerable<Project>> GetProjectsByUserIdAsync(int userId)
         {
             return await _context.Projects
-                .Where(p => p.UserId == userId) // Assuming Project has a UserId property
+                .Include(p => p.ProjectAccesses)
+                .Where(p => p.UserId == userId || p.ProjectAccesses.Any(a => a.UserId == userId))
                 .ToListAsync();
         }
 
         public async Task<Project?> GetByIdAsync(int id)
         {
-            return await _context.Projects.FindAsync(id);
+            return await _context.Projects
+                .Include(p => p.ProjectAccesses)
+                .FirstOrDefaultAsync(p => p.Id == id);
         }
 
         public async Task CreateAsync(Project project)
@@ -68,10 +73,8 @@ namespace B.Repositories.Implementations
         public async Task<IEnumerable<ProjectFile>> GetProjectFilesAsync(int projectId)
         {
             if (projectId == 0)
-            {
-                // Return all files if projectId is 0 (used for file download by fileId)
                 return await _context.ProjectFiles.ToListAsync();
-            }
+
             return await _context.ProjectFiles
                 .Where(f => f.ProjectId == projectId)
                 .ToListAsync();
@@ -97,6 +100,68 @@ namespace B.Repositories.Implementations
             file.LastModified = DateTime.UtcNow;
             _context.Entry(file).State = EntityState.Modified;
             await _context.SaveChangesAsync();
+        }
+
+        public async Task<IEnumerable<ProjectAccess>> GetProjectAccessesAsync(int projectId)
+        {
+            return await _context.ProjectAccesses
+                .Where(a => a.ProjectId == projectId)
+                .ToListAsync();
+        }
+
+        public async Task SetProjectAccessesAsync(int projectId, IEnumerable<ProjectAccess> accesses)
+        {
+            var existing = await _context.ProjectAccesses
+                .Where(a => a.ProjectId == projectId)
+                .ToListAsync();
+            _context.ProjectAccesses.RemoveRange(existing);
+
+            foreach (var access in accesses)
+            {
+                access.ProjectId = projectId;
+                _context.ProjectAccesses.Add(access);
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<ProjectAccess?> GetProjectAccessAsync(int projectId, int userId)
+        {
+            return await _context.ProjectAccesses
+                .FirstOrDefaultAsync(a => a.ProjectId == projectId && a.UserId == userId);
+        }
+
+        public async Task UpsertProjectAccessAsync(int projectId, int userId, string accessLevel)
+        {
+            var existing = await _context.ProjectAccesses
+                .FirstOrDefaultAsync(a => a.ProjectId == projectId && a.UserId == userId);
+
+            if (existing != null)
+            {
+                existing.AccessLevel = accessLevel;
+                existing.GrantedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                _context.ProjectAccesses.Add(new ProjectAccess
+                {
+                    ProjectId = projectId,
+                    UserId = userId,
+                    AccessLevel = accessLevel,
+                    GrantedAt = DateTime.UtcNow
+                });
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task RemoveProjectAccessAsync(int projectId, int userId)
+        {
+            var access = await _context.ProjectAccesses
+                .FirstOrDefaultAsync(a => a.ProjectId == projectId && a.UserId == userId);
+            if (access != null)
+            {
+                _context.ProjectAccesses.Remove(access);
+                await _context.SaveChangesAsync();
+            }
         }
     }
 }

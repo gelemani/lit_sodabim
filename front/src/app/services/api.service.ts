@@ -508,11 +508,16 @@ class ApiService {
 
   async postUserProject(project: ProjectCreate): Promise<Project | undefined> {
     try {
+      const body = {
+        creatorId: project.creatorId,
+        title: project.title,
+        accessLevel: project.accessLevel,
+        projectAccesses: project.projectAccesses?.map(a => ({ userId: a.userId, accessLevel: a.accessLevel })),
+      };
       const response = await this.axiosInstance.post<Project>(
         `${API_PREFIX}/Project`,
-        project,
+        body,
       );
-      console.log("Созданный проект:", response.data);
       return response.data;
     } catch (error) {
       console.error("Ошибка при создании проекта:", error);
@@ -520,21 +525,29 @@ class ApiService {
     }
   }
 
+  async addProjectAccess(projectId: number, userId: number, accessLevel: string): Promise<void> {
+    await this.axiosInstance.post(`${API_PREFIX}/Project/${projectId}/access`, { userId, accessLevel });
+  }
+
+  async removeProjectAccess(projectId: number, userId: number): Promise<void> {
+    await this.axiosInstance.delete(`${API_PREFIX}/Project/${projectId}/access/${userId}`);
+  }
+
   async putUserProject(
     projectId: number,
     project: Project,
   ): Promise<ApiResponse<Project>> {
     try {
-      console.log("[ApiService] Updating project:", project);
-      const response = await this.axiosInstance.put(
-        `${API_URL}/${API_PREFIX}/Project/${projectId}`,
-        project,
-      );
-      console.log("[ApiService] Project update response:", response);
-      return {
-        success: true,
-        data: response.data,
+      const body = {
+        title: project.title,
+        accessLevel: project.accessLevel,
+        projectAccesses: project.projectAccesses?.map(a => ({ userId: a.userId, accessLevel: a.accessLevel })),
       };
+      await this.axiosInstance.put(
+        `${API_PREFIX}/Project/${projectId}`,
+        body,
+      );
+      return { success: true };
     } catch (error) {
       console.error("[ApiService] Error updating project:", error);
       if (axios.isAxiosError(error)) {
@@ -543,10 +556,7 @@ class ApiService {
           error: error.response?.data?.message || "Failed to update project",
         };
       }
-      return {
-        success: false,
-        error: "Failed to update project",
-      };
+      return { success: false, error: "Failed to update project" };
     }
   }
 
@@ -651,7 +661,7 @@ class ApiService {
       });
 
       console.log("Полученный файл:", response.data);
-      return { success: true, data: response.data as unknown };
+      return { success: true, data: (response.data as unknown) as ProjectFile | undefined };
     } catch (error) {
       console.error("Ошибка при загрузке файла:", error);
       return {

@@ -92,6 +92,34 @@ namespace B.Migrations
                     b.ToTable("Projects");
                 });
 
+            modelBuilder.Entity("B.Models.ProjectAccess", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AccessLevel")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("ProjectAccesses");
+                });
+
             modelBuilder.Entity("B.Models.ProjectFile", b =>
                 {
                     b.Property<int>("Id")
@@ -171,6 +199,17 @@ namespace B.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("B.Models.ProjectAccess", b =>
+                {
+                    b.HasOne("B.Models.Project", "Project")
+                        .WithMany("ProjectAccesses")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
             modelBuilder.Entity("B.Models.ProjectFile", b =>
                 {
                     b.HasOne("B.Models.Project", "Project")
@@ -184,6 +223,8 @@ namespace B.Migrations
 
             modelBuilder.Entity("B.Models.Project", b =>
                 {
+                    b.Navigation("ProjectAccesses");
+
                     b.Navigation("ProjectFiles");
                 });
 #pragma warning restore 612, 618

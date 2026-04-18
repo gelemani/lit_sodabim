@@ -13,10 +13,15 @@ namespace B.Repositories.Interfaces
         Task DeleteAsync(int id);
 
         Task AddProjectFilesAsync(int projectId, IEnumerable<ProjectFile> files);
-
         Task<IEnumerable<ProjectFile>> GetProjectFilesAsync(int projectId);
         Task<ProjectFile?> GetProjectFileByIdAsync(int fileId);
         Task DeleteProjectFileAsync(int fileId);
         Task UpdateProjectFileAsync(ProjectFile file);
+
+        Task<IEnumerable<ProjectAccess>> GetProjectAccessesAsync(int projectId);
+        Task SetProjectAccessesAsync(int projectId, IEnumerable<ProjectAccess> accesses);
+        Task<ProjectAccess?> GetProjectAccessAsync(int projectId, int userId);
+        Task UpsertProjectAccessAsync(int projectId, int userId, string accessLevel);
+        Task RemoveProjectAccessAsync(int projectId, int userId);
     }
 }

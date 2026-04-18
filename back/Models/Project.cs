@@ -23,5 +23,6 @@ namespace B.Models
         public string AccessLevel { get; set; } = "View"; // Access level of the current user (e.g., "View", "Edit", "Admin")
 
         public ICollection<ProjectFile> ProjectFiles { get; set; } = new List<ProjectFile>();
+        public ICollection<ProjectAccess> ProjectAccesses { get; set; } = new List<ProjectAccess>();
     }
 }
