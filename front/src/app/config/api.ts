@@ -1,4 +1,5 @@
-export const API_URL = "http://localhost:5080";
+// export const API_URL = "http://localhost:5080";/**/
+export const API_URL = "https://backendbim-qm9b.onrender.com";
 export const API_PREFIX = "api";
 
 /* The `API_HEADERS` constant is defining an object that contains headers commonly used in HTTP
