@@ -754,7 +754,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                     {/* ── Sketch overlay ── */}
                     {sketchOverlay && (
                         <div style={{ position: "absolute", inset: 0, top: 50, zIndex: 40, pointerEvents: "none" }}>
-                            <div dangerouslySetInnerHTML={{ __html: sketchOverlay.svg }} style={{ width: "100%", height: "100%", opacity: 0.65 }} />
+                            <div dangerouslySetInnerHTML={{ __html: sketchOverlay.svg.replace(/<svg /, '<svg style="width:100%;height:100%" preserveAspectRatio="none" ') }} style={{ width: "100%", height: "100%", opacity: 0.65 }} />
                             <button onClick={() => setSketchOverlay(null)} style={{
                                 position: "absolute", top: 12, right: isModalOpen ? 352 : 12, pointerEvents: "all",
                                 background: "rgba(26,29,36,0.9)", backdropFilter: "blur(8px)",
@@ -764,25 +764,24 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                         </div>
                     )}
 
-                    {/* ── Presence avatars (top-right) ── */}
-                    {presenceUsers.length > 0 && (
+                    {/* ── Presence avatars (top-right, others only) ── */}
+                    {presenceUsers.filter(u => u.userId !== currentUserId).length > 0 && (
                         <div style={{ position: "fixed", top: 58, right: isModalOpen ? 352 : 16, zIndex: 20, display: "flex", alignItems: "center", gap: 4, transition: "right 0.2s" }}>
-                            {presenceUsers.slice(0, 6).map((u) => {
+                            {presenceUsers.filter(u => u.userId !== currentUserId).slice(0, 6).map((u) => {
                                 const ini = [u.userName?.[0], u.userSurname?.[0]].filter(Boolean).join("").toUpperCase() || "?";
-                                const isMe = u.userId === currentUserId;
                                 return (
                                     <div key={u.userId} title={`${u.userName} ${u.userSurname}`.trim() || `User ${u.userId}`} style={{
                                         width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                                         fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0,
-                                        background: isMe ? "linear-gradient(135deg,#3b82f6,#8b5cf6)" : "linear-gradient(135deg,#10b981,#059669)",
-                                        border: isMe ? "2px solid rgba(59,130,246,0.6)" : "2px solid rgba(16,185,129,0.4)",
+                                        background: "linear-gradient(135deg,#10b981,#059669)",
+                                        border: "2px solid rgba(16,185,129,0.4)",
                                         boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
                                     }}>{ini}</div>
                                 );
                             })}
-                            {presenceUsers.length > 6 && (
+                            {presenceUsers.filter(u => u.userId !== currentUserId).length > 6 && (
                                 <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#252a33", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#64748b", border: "2px solid #374151" }}>
-                                    +{presenceUsers.length - 6}
+                                    +{presenceUsers.filter(u => u.userId !== currentUserId).length - 6}
                                 </div>
                             )}
                         </div>
@@ -973,7 +972,7 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                                 </div>
                                                 <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.5 }}>{comment.text}</div>
                                                 {comment.sketchSvg && (
-                                                    <div dangerouslySetInnerHTML={{ __html: comment.sketchSvg }}
+                                                    <div dangerouslySetInnerHTML={{ __html: comment.sketchSvg.replace(/<svg /, '<svg style="width:100%;height:auto" ') }}
                                                         onClick={() => setSketchOverlay({ svg: comment.sketchSvg!, label: comment.elementName })}
                                                         style={{ marginTop: 6, maxHeight: 56, overflow: "hidden", background: "transparent", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
                                                 )}
@@ -1094,18 +1093,22 @@ const Viewer = ({ isAuthenticated, file }: { isAuthenticated: boolean; file?: Fi
                                     all.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
                                     if (!all.length) return <p style={{ color: "#374151", fontSize: 13, margin: 0 }}>Нет комментариев</p>;
                                     return all.map((c, i) => (
-                                        <div key={i} style={{ marginBottom: 8, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }}>
-                                            <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 500, marginBottom: 4, cursor: "pointer" }} onClick={() => void handleCommentClick(c)}>
+                                        <div key={i}
+                                            onClick={() => void handleCommentClick(c)}
+                                            style={{ marginBottom: 8, padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)", cursor: c.sketchSvg ? "pointer" : "default" }}
+                                            onMouseEnter={e => { if (c.sketchSvg) e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+                                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                                        >
+                                            <div style={{ fontSize: 11, color: "#60a5fa", fontWeight: 500, marginBottom: 4 }}>
                                                 {getElementDisplayName({ id: c.elementId, Name: { value: c.elementName } } as IfcElementProperties, customNames)}
                                             </div>
                                             <div style={{ color: "#cbd5e1", fontSize: 12, lineHeight: 1.5 }}>{c.text}</div>
                                             {c.sketchSvg && (
-                                                <div dangerouslySetInnerHTML={{ __html: c.sketchSvg }}
-                                                    onClick={() => setSketchOverlay({ svg: c.sketchSvg!, label: c.elementName })}
-                                                    style={{ marginTop: 6, maxHeight: 44, overflow: "hidden", background: "transparent", borderRadius: 5, cursor: "pointer", border: "1px solid rgba(255,255,255,0.06)", lineHeight: 0 }} />
+                                                <div dangerouslySetInnerHTML={{ __html: c.sketchSvg.replace(/<svg /, '<svg style="width:100%;height:auto" ') }}
+                                                    style={{ marginTop: 6, maxHeight: 44, overflow: "hidden", background: "transparent", borderRadius: 5, border: "1px solid rgba(255,255,255,0.12)", lineHeight: 0 }} />
                                             )}
                                             {c.cameraPositionJson && (
-                                                <button onClick={() => { try { flyToCamera(JSON.parse(c.cameraPositionJson!)); } catch { /* ignore */ } }}
+                                                <button onClick={e => { e.stopPropagation(); try { flyToCamera(JSON.parse(c.cameraPositionJson!)); } catch { /* ignore */ } }}
                                                     style={{ marginTop: 5, fontSize: 10, background: "transparent", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}>
                                                     Перейти к виду
                                                 </button>

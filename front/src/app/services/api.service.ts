@@ -876,30 +876,30 @@ class ApiService {
     try {
       console.log(`[ApiService] Fetching files for project ${projectId}...`);
       const response = await this.axiosInstance.get(
-        `${API_PREFIX}/Project/${projectId}/files`,
+          `${API_PREFIX}/Project/${projectId}/files`,
       );
       console.log("[ApiService] Raw response:", response);
       console.log(
-        "[ApiService] Response data:",
-        JSON.stringify(response.data, null, 2),
+          "[ApiService] Response data:",
+          JSON.stringify(response.data, null, 2),
       );
       console.log("[ApiService] Response data type:", typeof response.data);
       console.log(
-        "[ApiService] Response data keys:",
-        Object.keys(response.data),
+          "[ApiService] Response data keys:",
+          Object.keys(response.data),
       );
       console.log("[ApiService] Response data.$values:", response.data.$values);
       console.log(
-        "[ApiService] Response data.$values type:",
-        typeof response.data.$values,
+          "[ApiService] Response data.$values type:",
+          typeof response.data.$values,
       );
       console.log(
-        "[ApiService] Response data.$values is array:",
-        Array.isArray(response.data.$values),
+          "[ApiService] Response data.$values is array:",
+          Array.isArray(response.data.$values),
       );
       console.log(
-        "[ApiService] Response data.$values length:",
-        response.data.$values?.length,
+          "[ApiService] Response data.$values length:",
+          response.data.$values?.length,
       );
 
       // Try different response formats
@@ -918,8 +918,8 @@ class ApiService {
         } else if (typeof response.data.$values === "object") {
           // Handle case where $values might be an object with array properties
           const possibleArrays = Object.entries(response.data.$values)
-            .filter(([_, value]) => Array.isArray(value))
-            .map(([key, value]) => ({ key, value }));
+              .filter(([_, value]) => Array.isArray(value))
+              .map(([key, value]) => ({key, value}));
 
           if (possibleArrays.length > 0) {
             console.log("[ApiService] Found array in $values:", possibleArrays);
@@ -939,8 +939,8 @@ class ApiService {
       }
       // Format 5: { projectFiles: ProjectFile[] }
       else if (
-        response.data.projectFiles &&
-        Array.isArray(response.data.projectFiles)
+          response.data.projectFiles &&
+          Array.isArray(response.data.projectFiles)
       ) {
         console.log("[ApiService] Format 5: projectFiles array");
         files = response.data.projectFiles;
@@ -949,8 +949,8 @@ class ApiService {
       else {
         console.log("[ApiService] Format 6: Checking for array properties");
         const possibleArrays = Object.entries(response.data)
-          .filter(([_, value]) => Array.isArray(value))
-          .map(([key, value]) => ({ key, value }));
+            .filter(([_, value]) => Array.isArray(value))
+            .map(([key, value]) => ({key, value}));
 
         if (possibleArrays.length > 0) {
           console.log("[ApiService] Found array properties:", possibleArrays);
@@ -971,7 +971,7 @@ class ApiService {
           fileType: file.fileType || file.contentType || "unknown",
           fileSize: file.fileSize || 0,
           uploadDate:
-            file.uploadDate || file.createdAt || new Date().toISOString(),
+              file.uploadDate || file.createdAt || new Date().toISOString(),
           userId: file.userId || 0,
           filePath: file.filePath || "",
         }));
@@ -985,8 +985,8 @@ class ApiService {
       }
 
       console.error(
-        "[ApiService] Invalid project files response format:",
-        response.data,
+          "[ApiService] Invalid project files response format:",
+          response.data,
       );
       return {
         success: false,
@@ -1002,12 +1002,11 @@ class ApiService {
       return {
         success: false,
         error: axios.isAxiosError(error)
-          ? error.response?.data?.message || error.message
-          : "Unknown error",
+            ? error.response?.data?.message || error.message
+            : "Unknown error",
       };
     }
   }
-}
 
   async aiChat(message: string, elementProperties?: string): Promise<{ reply: string }> {
     const resp = await this.axiosInstance.post(`${API_PREFIX}/ai/chat`, { message, elementProperties });

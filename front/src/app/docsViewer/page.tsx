@@ -184,16 +184,35 @@ export default function DocsViewerPage() {
                     return;
                 }
 
-                if (extension === 'png' || extension === 'jpg' || extension === 'jpeg') {
+                if (extension === 'pdf') {
                     setContent(
-                        <div style={{ textAlign: 'center' }}>
-                            <img src={fileUrl} alt={currentName} style={{ maxWidth: '100%', maxHeight: '80vh' }} />
+                        <div style={{ width: '100%', height: 'calc(100vh - 120px)' }}>
+                            <iframe src={fileUrl} style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8 }} title={currentName} />
                         </div>
                     );
                     return;
                 }
 
-                setContent(<div>Неподдерживаемый формат файла</div>);
+                if (extension === 'txt') {
+                    const text = new TextDecoder('utf-8').decode(arrayBuffer);
+                    setContent(
+                        <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", background: "#111827", color: "#e2e8f0", borderRadius: 8, padding: 16, border: "1px solid #2d3748", fontFamily: "monospace", fontSize: 13, lineHeight: 1.7 }}>
+                            {text}
+                        </pre>
+                    );
+                    return;
+                }
+
+                if (extension === 'png' || extension === 'jpg' || extension === 'jpeg') {
+                    setContent(
+                        <div style={{ textAlign: 'center' }}>
+                            <img src={fileUrl} alt={currentName} style={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }} />
+                        </div>
+                    );
+                    return;
+                }
+
+                setContent(<div style={{ color: "#94a3b8", textAlign: "center", padding: 48 }}>Неподдерживаемый формат файла</div>);
             })
             .catch((err) => {
                 console.error('Ошибка загрузки файла:', err);

@@ -48,8 +48,19 @@ namespace B.Controllers
         [HttpGet("list")]
         public async Task<IActionResult> GetAllProjects()
         {
-            var projects = await _projectRepository.GetAllAsync();
-            return Ok(projects.Select(MapProject));
+            var projects = await _context.Projects
+                .Select(p => new {
+                    id = p.Id,
+                    creatorId = p.UserId,
+                    title = p.Title,
+                    createdAt = p.CreatedAt,
+                    lastModified = p.LastModified,
+                    accessLevel = p.AccessLevel,
+                    projectFiles = p.ProjectFiles.Select(f => new { f.Id, f.FileName, f.CreatedAt, f.LastModified }),
+                    projectAccesses = p.ProjectAccesses.Select(a => new { a.UserId, a.AccessLevel, a.GrantedAt }),
+                })
+                .ToListAsync();
+            return Ok(projects);
         }
 
         [HttpGet("users")]
@@ -70,8 +81,20 @@ namespace B.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] int userId)
         {
-            var projects = await _projectRepository.GetProjectsByUserIdAsync(userId);
-            return Ok(projects.Select(MapProject));
+            var projects = await _context.Projects
+                .Where(p => p.UserId == userId || p.ProjectAccesses.Any(a => a.UserId == userId))
+                .Select(p => new {
+                    id = p.Id,
+                    creatorId = p.UserId,
+                    title = p.Title,
+                    createdAt = p.CreatedAt,
+                    lastModified = p.LastModified,
+                    accessLevel = p.AccessLevel,
+                    projectFiles = p.ProjectFiles.Select(f => new { f.Id, f.FileName, f.CreatedAt, f.LastModified }),
+                    projectAccesses = p.ProjectAccesses.Select(a => new { a.UserId, a.AccessLevel, a.GrantedAt }),
+                })
+                .ToListAsync();
+            return Ok(projects);
         }
 
         [HttpGet("{id}")]
